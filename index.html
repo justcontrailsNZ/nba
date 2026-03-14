@@ -202,7 +202,7 @@
             </div>
             
             <div class="widget-box">
-                <h2>🔥 League Leaders</h2>
+                <h2>🔥 Season Leaders</h2>
                 <select id="leader-stat-select" class="leader-dropdown" onchange="fetchLeaders()">
                     <option value="points">Points</option>
                     <option value="assists">Assists</option>
@@ -234,8 +234,7 @@
                     meta.data.forEach((element, index) => {
                         const wl = dataset.winLossData ? dataset.winLossData[index] : null;
                         if (wl) {
-                            ctx.fillStyle = wl === 'W' ? '#28a745' : '#c8102e'; // Green for Win, Red for Loss
-                            // Draw the letter exactly 10 pixels above the data dot
+                            ctx.fillStyle = wl === 'W' ? '#28a745' : '#c8102e'; 
                             ctx.fillText(wl, element.x, element.y - 10);
                         }
                     });
@@ -295,15 +294,20 @@
             } catch (e) { document.getElementById('standings-container').innerHTML = '<p style="color:red">Failed to load standings.</p>'; }
         }
 
-        // --- FETCH LEAGUE LEADERS VIA ESPN CORE API ($REF HUNTING) ---
+        // --- FETCH CURRENT SEASON LEAGUE LEADERS ---
         async function fetchLeaders() {
             const statType = document.getElementById('leader-stat-select').value;
             const container = document.getElementById('leaders-container');
-            container.innerHTML = '<div class="loading">Hunting deep API for Leaders...</div>';
+            container.innerHTML = '<div class="loading">Loading current season leaders...</div>';
             
             try {
-                // We use the Core ESPN endpoint which is highly stable but requires decoding $ref URLs
-                const res = await fetch('https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/leaders?limit=15');
+                // 1. Get the current active NBA season dynamically
+                const sbRes = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard');
+                const sbData = await sbRes.json();
+                const seasonYear = (sbData.season && sbData.season.year) ? sbData.season.year : 2024;
+                
+                // 2. Fetch leaders specifically for the current active Regular Season (types/2)
+                const res = await fetch(`https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/seasons/${seasonYear}/types/2/leaders?limit=15`);
                 const data = await res.json();
                 
                 const category = data.categories.find(c => c.name === statType);
@@ -312,7 +316,7 @@
                 const topLeaders = category.leaders.slice(0, 15);
                 const statSuffix = category.abbreviation || statType.toUpperCase().substring(0,3);
 
-                // Promise.all instantly chases all 15 reference URLs simultaneously to get the actual player names
+                // Decode $ref URLs to get actual player names
                 const leadersData = await Promise.all(topLeaders.map(async (leader) => {
                     try {
                         const athleteUrl = leader.athlete.$ref.replace("http://", "https://");
@@ -340,7 +344,7 @@
             }
         }
 
-        // --- FETCH INJURY REPORT (FIXED: NOW SCANS ENTIRE POSITIONAL ROSTER) ---
+        // --- FETCH INJURY REPORT ---
         async function fetchInjuries(espnId) {
             const container = document.getElementById('injuries-container');
             container.innerHTML = '<div class="loading">Analyzing roster health...</div>';
@@ -351,7 +355,6 @@
                 let injuredPlayers = [];
 
                 if (data.athletes) {
-                    // We must loop through all Positional Groups (Point Guards, Shooting Guards, Centers, etc.)
                     data.athletes.forEach(positionGroup => {
                         if (positionGroup.items) {
                             positionGroup.items.forEach(p => {
@@ -411,7 +414,6 @@
             hotContainer.innerHTML = '<div class="loading">Analyzing momentum...</div>';
 
             try {
-                // 1. Fetch Selected Team Schedule
                 const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule`);
                 const scheduleData = await scheduleRes.json();
 
@@ -421,7 +423,6 @@
                 const last5Games = completedGames.slice(-5);
                 const nextGame = upcomingGames.length > 0 ? upcomingGames[0] : null;
 
-                // 2. Build Primary Team Chart Data, W/L, & Momentum
                 let winCount = 0; let totalPts = 0; let validGames = 0;
                 let myDataPts = []; let myWL = [];
                 let labels = ["Game 1", "Game 2", "Game 3", "Game 4", "Game 5"];
@@ -434,11 +435,10 @@
                         if (targetTeam.winner) winCount++;
                         totalPts += pts; validGames++;
                         myDataPts.push(pts);
-                        myWL.push(targetTeam.winner ? 'W' : 'L'); // Push 'W' or 'L' based on result
+                        myWL.push(targetTeam.winner ? 'W' : 'L');
                     }
                 });
 
-                // 3. Find Opponent and Fetch Their Chart Data & W/L
                 let oppId = null; let oppAbbrev = "Opponent"; let oppDataPts = []; let oppWL = [];
                 if (nextGame) {
                     const comp = nextGame.competitions[0];
@@ -461,16 +461,14 @@
                             const targetOpp = comp.competitors.find(c => c.team.id === oppId);
                             if (targetOpp && targetOpp.score) {
                                 oppDataPts.push(parseInt(targetOpp.score.value));
-                                oppWL.push(targetOpp.winner ? 'W' : 'L'); // Opponent's W/L
+                                oppWL.push(targetOpp.winner ? 'W' : 'L');
                             }
                         });
                     } catch (e) { console.warn("Could not fetch opponent chart data"); }
                 }
 
-                // Render Multi-Line Chart w/ Win/Loss Plugin
                 drawPerformanceChart(labels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
 
-                // Render Momentum Box
                 let trendIcon = "⚖️"; let trendText = "NEUTRAL"; let trendColor = "#555";
                 if (winCount >= 4) { trendIcon = "🔥"; trendText = "HOT"; trendColor = "#c8102e"; }
                 else if (winCount <= 1) { trendIcon = "🧊"; trendText = "COLD"; trendColor = "#1d428a"; }
@@ -487,11 +485,9 @@
                     </div>
                 `;
 
-                // Render Next Game
                 if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true); } 
                 else { nextContainer.innerHTML = '<div class="panel-box"><p style="text-align:center; color:#777;">No upcoming games scheduled.</p></div>'; }
 
-                // Render Past Games
                 const reversedPast = [...last5Games].reverse();
                 if (reversedPast.length === 0) { pastContainer.innerHTML = '<p>No completed games found.</p>'; } 
                 else {
@@ -513,7 +509,7 @@
             let datasets = [{
                 label: `${myName} Pts`,
                 data: myData,
-                winLossData: myWL, // Attached custom property for the Plugin
+                winLossData: myWL,
                 borderColor: '#1d428a', backgroundColor: 'rgba(29, 66, 138, 0.2)',
                 borderWidth: 3, fill: true, tension: 0.4,
                 pointBackgroundColor: '#1d428a', pointRadius: 5
@@ -523,7 +519,7 @@
                 datasets.push({
                     label: `${oppName} Pts`,
                     data: oppData,
-                    winLossData: oppWL, // Attached custom property for the Plugin
+                    winLossData: oppWL,
                     borderColor: '#777777', backgroundColor: 'rgba(119, 119, 119, 0.1)',
                     borderWidth: 2, fill: true, tension: 0.4, borderDash: [5, 5],
                     pointBackgroundColor: '#555', pointRadius: 4
@@ -535,11 +531,11 @@
                 data: { labels: labels, datasets: datasets },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    layout: { padding: { top: 20 } }, // Space at the top for W/L labels
+                    layout: { padding: { top: 20 } }, 
                     plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } },
                     scales: { y: { suggestedMin: 80, suggestedMax: 135 } }
                 },
-                plugins: [winLossPlugin] // Activate our custom W/L drawing engine
+                plugins: [winLossPlugin] 
             });
         }
 
@@ -578,14 +574,13 @@
                         let homeExpPts = (hStats.offRating + aStats.defRating) / 2;
                         let awayExpPts = (aStats.offRating + hStats.defRating) / 2;
 
-                        homeExpPts += 3.5; // Home Court Advantage
+                        homeExpPts += 3.5; 
                         homeExpPts += (hStats.formWeight - 0.5) * 6; 
                         awayExpPts += (aStats.formWeight - 0.5) * 6;
 
                         let totalExp = homeExpPts + awayExpPts;
                         let homeProb = Math.round((homeExpPts / totalExp) * 100);
                         
-                        // Exaggerate probability slightly for realism
                         homeProb = homeProb + ((homeProb - 50) * 1.5); 
                         if(homeProb > 95) homeProb = 95; if(homeProb < 5) homeProb = 5;
                         homeProb = Math.round(homeProb);
