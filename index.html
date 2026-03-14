@@ -738,7 +738,6 @@
                         `;
                     } else { predictionHTML = `<div class="prediction-box"><div class="pred-subtext">AI data loading...</div></div>`; }
                 }
-
                 let performersHTML = '';
                 if (!isUpcoming && data.boxscore && data.boxscore.players) {
                     data.boxscore.players.forEach(teamData => {
@@ -753,7 +752,7 @@
                             activePlayers.sort((a, b) => parseInt((b.stats && b.stats[ptsIdx]) || 0) - parseInt((a.stats && a.stats[ptsIdx]) || 0));
                             
                             activePlayers.slice(0, 3).forEach(p => {
-                                p, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
+                                performersHTML += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
                             });
                         }
                         performersHTML += `</ul></div>`;
@@ -804,6 +803,5 @@
         }
     </script>
 </body>
-</html>erformersHTML += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS
-
-                                
+</html>
+               
