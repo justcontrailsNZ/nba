@@ -125,60 +125,69 @@
     </div>
 
     <script>
-        // Your personal NewsData.io API Key
         const API_KEY = 'pub_dce2909d7f99428199a11eb8be5c290e';
 
         async function fetchNews() {
             const team = document.getElementById('team-select').value;
             const container = document.getElementById('news-container');
             
-            // Show loading state
             container.innerHTML = '<p>Fetching latest news...</p>';
 
-            // Build the query using the selected team
-            const query = `"${team}"`;
+            // FIX 1: Format query with ' AND ' (e.g., 'Boston AND Celtics') to force accurate API search
+            const query = team.split(' ').join(' AND ');
             
-            // NewsData.io API Endpoint (q searches for the team, category limits it to sports, language is english)
             const url = `https://newsdata.io/api/1/news?apikey=${API_KEY}&q=${encodeURIComponent(query)}&category=sports&language=en`;
 
             try {
                 const response = await fetch(url);
                 const data = await response.json();
 
-                container.innerHTML = ''; // Clear loading text
+                container.innerHTML = ''; 
 
-                // Catch API errors (e.g., wrong key or out of requests)
                 if (data.status === "error") {
                     container.innerHTML = `<p style="color:red;">Error: ${data.results.message || data.message}</p>`;
                     return;
                 }
 
-                // Check if we have articles
                 if (data.results && data.results.length > 0) {
-                    data.results.forEach(article => {
-                        // Format the date
-                        const date = new Date(article.pubDate).toLocaleDateString();
-                        
-                        // Handle articles that might be missing images or descriptions
-                        const imageUrl = article.image_url ? article.image_url : 'https://via.placeholder.com/300x180?text=No+Image';
-                        let description = "Click the link to read the full story.";
-                        if (article.description) {
-                            description = article.description.length > 150 ? article.description.substring(0, 150) + "..." : article.description;
-                        }
+                    
+                    // FIX 2: Strict Frontend Filter
+                    // Get the team's unique mascot name (e.g., 'Lakers' from 'Los Angeles Lakers')
+                    const teamMascot = team.split(' ').pop().toLowerCase();
 
-                        // Create HTML for each news card
-                        const card = document.createElement('div');
-                        card.className = 'card';
-                        card.innerHTML = `
-                            <img src="${imageUrl}" alt="News Image" onerror="this.src='https://via.placeholder.com/300x180?text=No+Image'">
-                            <div class="card-content">
-                                <h3><a href="${article.link}" target="_blank">${article.title}</a></h3>
-                                <p>${description}</p>
-                                <div class="date">Published: ${date}</div>
-                            </div>
-                        `;
-                        container.appendChild(card);
+                    // Filter articles to ONLY keep ones where the mascot is actually in the title or description
+                    const relevantArticles = data.results.filter(article => {
+                        const titleText = (article.title || "").toLowerCase();
+                        const descText = (article.description || "").toLowerCase();
+                        return titleText.includes(teamMascot) || descText.includes(teamMascot);
                     });
+
+                    // Check if we still have articles after filtering out the irrelevant ones
+                    if (relevantArticles.length > 0) {
+                        relevantArticles.forEach(article => {
+                            const date = new Date(article.pubDate).toLocaleDateString();
+                            
+                            const imageUrl = article.image_url ? article.image_url : 'https://via.placeholder.com/300x180?text=No+Image';
+                            let description = "Click the link to read the full story.";
+                            if (article.description) {
+                                description = article.description.length > 150 ? article.description.substring(0, 150) + "..." : article.description;
+                            }
+
+                            const card = document.createElement('div');
+                            card.className = 'card';
+                            card.innerHTML = `
+                                <img src="${imageUrl}" alt="News Image" onerror="this.src='https://via.placeholder.com/300x180?text=No+Image'">
+                                <div class="card-content">
+                                    <h3><a href="${article.link}" target="_blank">${article.title}</a></h3>
+                                    <p>${description}</p>
+                                    <div class="date">Published: ${date}</div>
+                                </div>
+                            `;
+                            container.appendChild(card);
+                        });
+                    } else {
+                        container.innerHTML = '<p>No specific news found for this team right now. Try a different team!</p>';
+                    }
                 } else {
                     container.innerHTML = '<p>No news found for this team right now.</p>';
                 }
