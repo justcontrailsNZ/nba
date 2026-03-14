@@ -46,14 +46,17 @@
             overflow: hidden;
             text-align: left;
             transition: transform 0.2s;
+            display: flex;
+            flex-direction: column;
         }
         .card:hover { transform: translateY(-5px); }
         .card img {
             width: 100%;
             height: 180px;
             object-fit: cover;
+            background-color: #eaeaea;
         }
-        .card-content { padding: 15px; }
+        .card-content { padding: 15px; display: flex; flex-direction: column; flex-grow: 1; }
         .card-content h3 {
             font-size: 18px;
             margin-top: 0;
@@ -63,13 +66,12 @@
             text-decoration: none;
             color: #1d428a;
         }
-        .card-content a:hover {
-            text-decoration: underline;
-        }
+        .card-content a:hover { text-decoration: underline; }
         .card-content p {
             font-size: 14px;
             color: #555;
             line-height: 1.5;
+            flex-grow: 1;
         }
         .date {
             font-size: 12px;
@@ -123,8 +125,8 @@
     </div>
 
     <script>
-        // Your personal GNews API Key
-        const API_KEY = '06019f5d24ba88336ed458e145a80d1e';
+        // Your personal NewsData.io API Key
+        const API_KEY = 'pub_dce2909d7f99428199a11eb8be5c290e';
 
         async function fetchNews() {
             const team = document.getElementById('team-select').value;
@@ -133,9 +135,11 @@
             // Show loading state
             container.innerHTML = '<p>Fetching latest news...</p>';
 
-            // Search query includes the team name and "NBA" to ensure accuracy
-            const query = `"${team}" NBA`;
-            const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=9&apikey=${API_KEY}`;
+            // Build the query using the selected team
+            const query = `"${team}"`;
+            
+            // NewsData.io API Endpoint (q searches for the team, category limits it to sports, language is english)
+            const url = `https://newsdata.io/api/1/news?apikey=${API_KEY}&q=${encodeURIComponent(query)}&category=sports&language=en`;
 
             try {
                 const response = await fetch(url);
@@ -143,25 +147,33 @@
 
                 container.innerHTML = ''; // Clear loading text
 
-                // Check if API threw an error (e.g., rate limit reached)
-                if (data.errors) {
-                    container.innerHTML = `<p style="color:red;">Error: ${data.errors[0]}</p>`;
+                // Catch API errors (e.g., wrong key or out of requests)
+                if (data.status === "error") {
+                    container.innerHTML = `<p style="color:red;">Error: ${data.results.message || data.message}</p>`;
                     return;
                 }
 
-                // Check if there are articles
-                if (data.articles && data.articles.length > 0) {
-                    data.articles.forEach(article => {
-                        const date = new Date(article.publishedAt).toLocaleDateString();
+                // Check if we have articles
+                if (data.results && data.results.length > 0) {
+                    data.results.forEach(article => {
+                        // Format the date
+                        const date = new Date(article.pubDate).toLocaleDateString();
                         
-                        // Build the news card
+                        // Handle articles that might be missing images or descriptions
+                        const imageUrl = article.image_url ? article.image_url : 'https://via.placeholder.com/300x180?text=No+Image';
+                        let description = "Click the link to read the full story.";
+                        if (article.description) {
+                            description = article.description.length > 150 ? article.description.substring(0, 150) + "..." : article.description;
+                        }
+
+                        // Create HTML for each news card
                         const card = document.createElement('div');
                         card.className = 'card';
                         card.innerHTML = `
-                            <img src="${article.image}" alt="News Image" onerror="this.src='https://via.placeholder.com/300x180?text=No+Image'">
+                            <img src="${imageUrl}" alt="News Image" onerror="this.src='https://via.placeholder.com/300x180?text=No+Image'">
                             <div class="card-content">
-                                <h3><a href="${article.url}" target="_blank">${article.title}</a></h3>
-                                <p>${article.description}</p>
+                                <h3><a href="${article.link}" target="_blank">${article.title}</a></h3>
+                                <p>${description}</p>
                                 <div class="date">Published: ${date}</div>
                             </div>
                         `;
@@ -173,7 +185,7 @@
 
             } catch (error) {
                 console.error("Error fetching news:", error);
-                container.innerHTML = '<p style="color:red;">Something went wrong. Please try again later.</p>';
+                container.innerHTML = '<p style="color:red;">Something went wrong. Please check your console or try again later.</p>';
             }
         }
     </script>
