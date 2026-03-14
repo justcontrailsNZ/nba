@@ -90,6 +90,7 @@
         .performer-list li { margin-bottom: 4px; display: flex; flex-direction: column; border-bottom: 1px solid #eee; padding-bottom: 4px; font-size: 12px;}
         .performer-list li:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0;}
 
+        /* News Cards */
         .news-card {
             background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); width: 100%; max-width: 320px; padding: 15px; box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid #e1e4e8;
         }
@@ -98,16 +99,21 @@
         .news-card p { font-size: 13px; color: #555; line-height: 1.4; flex-grow: 1; margin: 10px 0; }
         .news-date { font-size: 11px; color: #888; margin-top: auto; padding-top: 10px; border-top: 1px solid #eee; }
 
+        /* Widgets (Standings & Leaders) */
         .widget-box { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 15px; border: 1px solid #e1e4e8; position: relative; }
-        .widget-box h2 { font-size: 17px; color: #333; margin-top: 0; border-bottom: 2px solid #1d428a; padding-bottom: 5px; margin-bottom: 10px; }
+        .widget-box h2 { font-size: 17px; color: #333; margin-top: 0; border-bottom: 2px solid #1d428a; padding-bottom: 5px; margin-bottom: 15px; }
         .leader-dropdown { position: absolute; top: 12px; right: 15px; padding: 4px; font-size: 12px; border-radius: 4px; cursor: pointer;}
         
-        .conf-title { font-size: 13px; color: white; margin: 15px 0 0 0; background: #c8102e; padding: 6px; border-radius: 4px 4px 0 0; text-align: center;}
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th { text-align: left; padding: 6px; color: #555; background-color: #f1f3f5; border-bottom: 2px solid #ddd; }
-        td { padding: 6px; border-bottom: 1px solid #eee; }
-        tr:hover { background-color: #f9f9f9; }
+        /* Compact Side-by-Side Standings */
+        .standings-wrapper { display: flex; gap: 10px; justify-content: space-between; }
+        .conf-box { flex: 1; min-width: 0; } /* min-width 0 prevents flex overflow */
+        .conf-title { font-size: 12px; font-weight: bold; color: white; background: #c8102e; padding: 4px; border-radius: 4px 4px 0 0; text-align: center; text-transform: uppercase; margin: 0;}
+        .standings-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .standings-table th { padding: 4px 2px; color: #555; background-color: #f1f3f5; border-bottom: 2px solid #ddd; text-align: center; }
+        .standings-table td { padding: 4px 2px; border-bottom: 1px solid #eee; text-align: center; white-space: nowrap;}
+        .standings-table th:nth-child(2), .standings-table td:nth-child(2) { text-align: left; } /* Align team name to left */
 
+        /* Leaders List */
         .leaders-list { margin: 0; padding: 0; list-style-type: none; font-size: 13px; color: #333; }
         .leaders-list li { display: flex; justify-content: space-between; padding: 8px 5px; border-bottom: 1px dashed #e1e4e8; align-items: center; }
         .leaders-list li:last-child { border-bottom: none; }
@@ -225,7 +231,7 @@
             id: 'winLossPlugin',
             afterDatasetsDraw(chart) {
                 const { ctx } = chart;
-                ctx.font = 'bold 13px sans-serif';
+                ctx.font = 'bold 12px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
 
@@ -247,17 +253,24 @@
             fetchLeaders();
         }
 
-        // --- FETCH STANDINGS & POPULATE AI STORE ---
+        // --- FETCH STANDINGS (SIDE-BY-SIDE WITH ABBREVIATIONS) ---
         async function fetchStandings() {
             try {
                 const res = await fetch('https://site.api.espn.com/apis/v2/sports/basketball/nba/standings');
                 const data = await res.json();
-                let html = '';
                 
                 if(data && data.children) {
-                    data.children.forEach(conf => {
-                        html += `<div class="conf-title">${conf.name || 'Conference'}</div>`;
-                        html += `<table><tr><th>#</th><th>Team</th><th>W-L</th><th>GB</th><th>L10</th></tr>`;
+                    // Identify East and West
+                    const east = data.children.find(c => c.name.includes('Eastern'));
+                    const west = data.children.find(c => c.name.includes('Western'));
+                    
+                    let html = '<div class="standings-wrapper">';
+
+                    const buildTable = (conf) => {
+                        if (!conf) return '';
+                        let tHtml = `<div class="conf-box">`;
+                        tHtml += `<div class="conf-title">${conf.name.replace('Conference', '').trim()}</div>`;
+                        tHtml += `<table class="standings-table"><tr><th>#</th><th>TM</th><th>W-L</th><th>GB</th><th>L10</th></tr>`;
                         
                         let sortedTeams = conf.standings.entries.sort((a, b) => {
                             const seedA = parseInt(a.stats.find(s => s.name === 'playoffSeed')?.value || 99);
@@ -272,9 +285,14 @@
                             const gb = team.stats.find(s => s.name === 'gamesBehind')?.displayValue || '-';
                             const l10Obj = team.stats.find(s => s.abbreviation === 'L10' || s.name === 'last10Games');
                             const l10 = l10Obj?.displayValue || '-';
+                            
+                            // Get exactly 3 letters for abbreviation
+                            let abbrev = team.team.abbreviation;
+                            if(!abbrev) abbrev = team.team.shortDisplayName.substring(0,3).toUpperCase();
+                            
+                            // Background Analytics Gathering
                             const ppg = team.stats.find(s => s.name === 'pointsFor')?.value || 110;
                             const oppPpg = team.stats.find(s => s.name === 'pointsAgainst')?.value || 110;
-                            
                             let l10Wins = 5;
                             if(l10 !== '-') { const parts = l10.split('-'); l10Wins = parseInt(parts[0]); }
                             
@@ -284,13 +302,19 @@
                                 formWeight: l10Wins / 10
                             };
 
-                            const name = team.team.shortDisplayName || team.team.displayName || 'Unknown';
-                            html += `<tr><td><b>${seed}</b></td><td>${name}</td><td>${wins}-${losses}</td><td>${gb}</td><td>${l10}</td></tr>`;
+                            tHtml += `<tr><td><b>${seed}</b></td><td><b>${abbrev}</b></td><td>${wins}-${losses}</td><td>${gb}</td><td>${l10}</td></tr>`;
                         });
-                        html += `</table>`;
-                    });
+                        tHtml += `</table></div>`;
+                        return tHtml;
+                    };
+
+                    // Append West first, then East
+                    html += buildTable(west);
+                    html += buildTable(east);
+                    html += '</div>';
+
+                    document.getElementById('standings-container').innerHTML = html;
                 }
-                document.getElementById('standings-container').innerHTML = html;
             } catch (e) { document.getElementById('standings-container').innerHTML = '<p style="color:red">Failed to load standings.</p>'; }
         }
 
@@ -301,12 +325,10 @@
             container.innerHTML = '<div class="loading">Loading current season leaders...</div>';
             
             try {
-                // 1. Get the current active NBA season dynamically
                 const sbRes = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard');
                 const sbData = await sbRes.json();
                 const seasonYear = (sbData.season && sbData.season.year) ? sbData.season.year : 2024;
                 
-                // 2. Fetch leaders specifically for the current active Regular Season (types/2)
                 const res = await fetch(`https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/seasons/${seasonYear}/types/2/leaders?limit=15`);
                 const data = await res.json();
                 
@@ -316,7 +338,6 @@
                 const topLeaders = category.leaders.slice(0, 15);
                 const statSuffix = category.abbreviation || statType.toUpperCase().substring(0,3);
 
-                // Decode $ref URLs to get actual player names
                 const leadersData = await Promise.all(topLeaders.map(async (leader) => {
                     try {
                         const athleteUrl = leader.athlete.$ref.replace("http://", "https://");
@@ -388,7 +409,7 @@
             }
         }
 
-        // --- FETCH TEAM DATA (Triggered by button) ---
+        // --- FETCH TEAM DATA ---
         function fetchTeamData() {
             const selectEl = document.getElementById('team-select');
             const teamName = selectEl.value;
@@ -501,7 +522,6 @@
             }
         }
 
-        // --- DRAW MULTI-LINE CHART.JS WITH W/L TAGS ---
         function drawPerformanceChart(labels, myName, myData, myWL, oppName, oppData, oppWL) {
             const ctx = document.getElementById('perfChart').getContext('2d');
             if(perfChartInstance) perfChartInstance.destroy();
