@@ -83,6 +83,16 @@
         .pred-text { font-size: 13px; color: #222; margin-bottom: 4px; }
         .pred-subtext { font-size: 10px; color: #777; font-style: italic; }
 
+        /* Syndicate EV UI */
+        .syndicate-box { background: #0b132b; border-radius: 6px; padding: 12px; margin-top: 8px; text-align: left; border: 1px solid #1c2541; font-family: 'Courier New', Courier, monospace; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .syndicate-title { font-size: 12px; font-weight: bold; color: #48cae4; border-bottom: 1px solid #1c2541; padding-bottom: 5px; margin-bottom: 8px; text-transform: uppercase; text-align: center; letter-spacing: 0.5px;}
+        .metric-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; border-bottom: 1px dashed #1c2541; padding-bottom: 3px; color: #8d99ae;}
+        .metric-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .metric-val { font-weight: bold; color: #00f5d4; }
+        .ev-badge { display: inline-block; background-color: #555; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-left: 5px; }
+        .ev-badge.positive { background-color: #28a745; box-shadow: 0 0 5px rgba(40, 167, 69, 0.4); color: #fff; }
+        .ev-badge.neutral { background-color: #ffc107; color: #000; }
+
         /* Performers Box */
         .performers-box { border-radius: 6px; margin-top: 8px; background-color: #fff; border: 1px solid #ddd; overflow: hidden; }
         .team-perf-title { font-weight: bold; text-transform: uppercase; color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,0.6); padding: 4px 8px; font-size:12px; }
@@ -253,16 +263,29 @@
             fetchLeaders();
         }
 
-        // --- FETCH STANDINGS (SIDE-BY-SIDE WITH ABBREVIATIONS) ---
+        // --- FETCH STANDINGS (SIDE-BY-SIDE WITH ABBREVIATIONS & PACE MATH) ---
         async function fetchStandings() {
             try {
                 const res = await fetch('https://site.api.espn.com/apis/v2/sports/basketball/nba/standings');
                 const data = await res.json();
                 
                 if(data && data.children) {
-                    // Identify East and West
                     const east = data.children.find(c => c.name.includes('Eastern'));
                     const west = data.children.find(c => c.name.includes('Western'));
+
+                    // Pre-calculate League Averages for Pace Modeling
+                    let totalLeaguePF = 0, totalLeaguePA = 0, teamCount = 0;
+                    const allEntries = [...east.standings.entries, ...west.standings.entries];
+                    
+                    allEntries.forEach(t => {
+                        totalLeaguePF += parseFloat(t.stats.find(s => s.name === 'pointsFor')?.value || 110);
+                        totalLeaguePA += parseFloat(t.stats.find(s => s.name === 'pointsAgainst')?.value || 110);
+                        teamCount++;
+                    });
+                    
+                    const lgAvgPF = totalLeaguePF / teamCount;
+                    const lgAvgPA = totalLeaguePA / teamCount;
+                    const baselinePace = 100.0; // Assume league avg pace is 100 possessions per game
                     
                     let html = '<div class="standings-wrapper">';
 
@@ -286,19 +309,28 @@
                             const l10Obj = team.stats.find(s => s.abbreviation === 'L10' || s.name === 'last10Games');
                             const l10 = l10Obj?.displayValue || '-';
                             
-                            // Get exactly 3 letters for abbreviation
                             let abbrev = team.team.abbreviation;
                             if(!abbrev) abbrev = team.team.shortDisplayName.substring(0,3).toUpperCase();
                             
-                            // Background Analytics Gathering
+                            // Background Analytics Gathering - PACE ADJUSTED MATH
                             const ppg = team.stats.find(s => s.name === 'pointsFor')?.value || 110;
                             const oppPpg = team.stats.find(s => s.name === 'pointsAgainst')?.value || 110;
                             let l10Wins = 5;
                             if(l10 !== '-') { const parts = l10.split('-'); l10Wins = parseInt(parts[0]); }
                             
+                            // Estimate Possessions (Pace) & Calculate Per-100 Ratings
+                            const teamCombinedPts = ppg + oppPpg;
+                            const lgCombinedPts = lgAvgPF + lgAvgPA;
+                            const estPace = baselinePace * (teamCombinedPts / lgCombinedPts);
+                            
+                            const oRtg_100 = (ppg / estPace) * 100;
+                            const dRtg_100 = (oppPpg / estPace) * 100;
+                            
                             window.teamAnalyticsStore[team.team.id] = {
                                 winPct: (wins / (wins + losses)) || 0.5,
-                                offRating: ppg, defRating: oppPpg,
+                                estPace: estPace,
+                                offRtg: oRtg_100, 
+                                defRtg: dRtg_100,
                                 formWeight: l10Wins / 10
                             };
 
@@ -308,7 +340,6 @@
                         return tHtml;
                     };
 
-                    // Append West first, then East
                     html += buildTable(west);
                     html += buildTable(east);
                     html += '</div>';
@@ -522,6 +553,7 @@
             }
         }
 
+        // --- DRAW PERFORMANCE CHART ---
         function drawPerformanceChart(labels, myName, myData, myWL, oppName, oppData, oppWL) {
             const ctx = document.getElementById('perfChart').getContext('2d');
             if(perfChartInstance) perfChartInstance.destroy();
@@ -559,7 +591,7 @@
             });
         }
 
-        // --- BUILD GAME CARD & ADVANCED AI MODEL ---
+        // --- BUILD GAME CARD & PACE-ADJUSTED ADVANCED AI MODEL ---
         async function buildGameCard(matchId, isUpcoming) {
             try {
                 const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${matchId}`);
@@ -581,8 +613,11 @@
                 const awayAbbr = awayTeam.team.abbreviation || 'AWY';
 
                 let spreadStr = "Spread Not Available";
+                let bookTotal = 225.0; // Fallback over/under
+                
                 if (data.pickcenter && data.pickcenter.length > 0 && data.pickcenter[0].details) {
                     spreadStr = `Odds: ${data.pickcenter[0].details} | O/U: ${data.pickcenter[0].overUnder || '--'}`;
+                    if(data.pickcenter[0].overUnder) bookTotal = parseFloat(data.pickcenter[0].overUnder);
                 }
 
                 let predictionHTML = '';
@@ -591,15 +626,21 @@
                     const aStats = window.teamAnalyticsStore[awayTeam.team.id];
 
                     if (hStats && aStats) {
-                        let homeExpPts = (hStats.offRating + aStats.defRating) / 2;
-                        let awayExpPts = (aStats.offRating + hStats.defRating) / 2;
+                        // 1. Estimate Game Pace (Possessions)
+                        const estGamePace = (hStats.estPace + aStats.estPace) / 2;
+                        
+                        // 2. Pace-Adjusted Math: Apply Per-100 Ratings to the Estimated Pace
+                        let homeRawPts = ((hStats.offRtg + aStats.defRtg) / 2) * (estGamePace / 100);
+                        let awayRawPts = ((aStats.offRtg + hStats.defRtg) / 2) * (estGamePace / 100);
 
-                        homeExpPts += 3.5; 
-                        homeExpPts += (hStats.formWeight - 0.5) * 6; 
-                        awayExpPts += (aStats.formWeight - 0.5) * 6;
+                        // 3. Modifiers (Home Court, Recent Form)
+                        homeRawPts += 3.0; // Home Edge
+                        homeRawPts += (hStats.formWeight - 0.5) * 5; 
+                        awayRawPts += (aStats.formWeight - 0.5) * 5;
 
-                        let totalExp = homeExpPts + awayExpPts;
-                        let homeProb = Math.round((homeExpPts / totalExp) * 100);
+                        // Calculate Probabilities
+                        let totalExp = homeRawPts + awayRawPts;
+                        let homeProb = Math.round((homeRawPts / totalExp) * 100);
                         
                         homeProb = homeProb + ((homeProb - 50) * 1.5); 
                         if(homeProb > 95) homeProb = 95; if(homeProb < 5) homeProb = 5;
@@ -607,16 +648,43 @@
                         let awayProb = 100 - homeProb;
 
                         let predictedWinner = homeProb > awayProb ? homeName : awayName;
+                        let spreadDiff = Math.abs(homeRawPts - awayRawPts).toFixed(1);
+                        let projSpread = homeRawPts > awayRawPts ? `${homeAbbr} -${spreadDiff}` : `${awayAbbr} -${spreadDiff}`;
+
+                        // Syndicate EV Edge Logic
+                        let evTotalClass = "neutral"; let evTotalEdge = "NO EDGE";
+                        let diffFromBook = Math.abs(totalExp - bookTotal);
+                        if(diffFromBook > 5.0) {
+                            evTotalClass = "positive";
+                            evTotalEdge = totalExp > bookTotal ? "+EV OVER" : "+EV UNDER";
+                        }
 
                         predictionHTML = `
                             <div class="prediction-box">
-                                <div class="pred-title">🤖 Deep AI Match Prediction</div>
+                                <div class="pred-title">🤖 AI Match Prediction</div>
                                 <div class="pred-text">Projected Winner: <b>${predictedWinner}</b></div>
                                 <div class="pred-bar-container">
                                     <div class="pred-bar away" style="width: ${awayProb}%">${awayAbbr} ${awayProb}%</div>
                                     <div class="pred-bar home" style="width: ${homeProb}%">${homeAbbr} ${homeProb}%</div>
                                 </div>
-                                <div class="pred-subtext">Calculated via Off/Def Ratings, Home Edge, & L10 Form</div>
+                                <div class="pred-subtext">Calculated via Pace-Adjusted Ratings & Form</div>
+                            </div>
+                            
+                            <!-- New Syndicate EV Calculator -->
+                            <div class="syndicate-box">
+                                <div class="syndicate-title">⚗️ Syndicate EV Calculator</div>
+                                <div class="metric-row">
+                                    <span>Est. Game Pace:</span>
+                                    <span class="metric-val">${estGamePace.toFixed(1)} Possessions</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Proj. Total:</span>
+                                    <span class="metric-val">${totalExp.toFixed(1)} <span class="ev-badge ${evTotalClass}">${evTotalEdge}</span></span>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Proj. Spread:</span>
+                                    <span class="metric-val">${projSpread}</span>
+                                </div>
                             </div>
                         `;
                     } else { predictionHTML = `<div class="prediction-box"><div class="pred-subtext">AI data loading...</div></div>`; }
