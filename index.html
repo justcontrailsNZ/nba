@@ -50,13 +50,6 @@
         
         .chart-container { position: relative; height: 180px; width: 100%; padding-top: 10px;}
 
-        table.injury-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px;}
-        .injury-table th { background-color: #f1f3f5; color: #555; padding: 6px; text-align: left; border-bottom: 2px solid #ddd; }
-        .injury-table td { padding: 6px; border-bottom: 1px solid #eee; }
-        .inj-status { font-weight: bold; padding: 3px 6px; border-radius: 4px; font-size: 10px; text-transform: uppercase;}
-        .inj-out { background-color: #ffe0e0; color: #c8102e; }
-        .inj-dtd { background-color: #fff0c2; color: #d48806; }
-
         .prediction-box { background: #eef2f5; border-radius: 6px; padding: 12px; margin-top: auto; border: 1px solid #d1d9e6; text-align: center; }
         .pred-title { font-size: 12px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; }
         .pred-bar-container { display: flex; height: 22px; border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
@@ -192,16 +185,17 @@
                 <div class="flex-row">
                     <div class="flex-item" id="hot-indicator-container"></div>
                     <div class="flex-item panel-box">
-                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Offensive Output: Team vs Upcoming Opponent</div>
+                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Offensive Output: Overall Last 5</div>
                         <div class="chart-container"><canvas id="perfChart"></canvas></div>
                     </div>
                 </div>
 
+                <!-- Next Game + H2H Graph Instead of Injury Box -->
                 <div class="flex-row">
                     <div class="flex-item" id="next-game-container"></div>
-                    <div class="flex-item panel-box" style="justify-content: flex-start;">
-                        <div style="font-size:15px; font-weight:bold; color:#c8102e; border-bottom: 2px solid #eee; padding-bottom:5px; margin-bottom:10px;">🏥 Official Injury Report</div>
-                        <div id="injuries-container"><div class="loading">Fetching injury data...</div></div>
+                    <div class="flex-item panel-box">
+                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Head-to-Head: Last 5 Matchups</div>
+                        <div class="chart-container" id="h2h-container"><canvas id="h2hChart"></canvas></div>
                     </div>
                 </div>
                 
@@ -240,25 +234,33 @@
     <script>
         const NEWS_API_KEY = 'pub_dce2909d7f99428199a11eb8be5c290e';
         let perfChartInstance = null;
+        let h2hChartInstance = null;
         window.teamAnalyticsStore = {}; 
         
         let currentSlateDate = new Date();
         currentSlateDate.setHours(currentSlateDate.getHours() - 5); // Shift -5 hours to handle late UTC matches properly for US dates
 
+        // Updated Plugin: Differentiates colors and vertical alignment to prevent overlap
         const winLossPlugin = {
             id: 'winLossPlugin',
             afterDatasetsDraw(chart) {
                 const { ctx } = chart;
                 ctx.font = 'bold 11px sans-serif';
                 ctx.textAlign = 'center';
-                ctx.textBaseline = 'bottom';
+                
                 chart.data.datasets.forEach((dataset, i) => {
                     const meta = chart.getDatasetMeta(i);
                     meta.data.forEach((element, index) => {
                         const wl = dataset.winLossData ? dataset.winLossData[index] : null;
                         if (wl) {
-                            ctx.fillStyle = wl === 'W' ? '#28a745' : '#c8102e'; 
-                            ctx.fillText(wl, element.x, element.y - 8);
+                            const colors = dataset.wlColors || { w: '#28a745', l: '#c8102e' };
+                            ctx.fillStyle = wl === 'W' ? colors.w : colors.l;
+                            
+                            // Offset logic: Main team goes ABOVE line, Opponent goes BELOW line
+                            const yOffset = i === 0 ? -8 : 15;
+                            ctx.textBaseline = i === 0 ? 'bottom' : 'top';
+                            
+                            ctx.fillText(wl, element.x, element.y + yOffset);
                         }
                     });
                 });
@@ -464,41 +466,6 @@
             } catch (e) { container.innerHTML = '<p style="color:red; text-align:center;">Failed to load leaders.</p>'; }
         }
 
-        async function fetchInjuries(espnId) {
-            const container = document.getElementById('injuries-container');
-            container.innerHTML = '<div class="loading">Analyzing roster health...</div>';
-            try {
-                const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/roster`);
-                const data = await res.json();
-                let injuredPlayers = [];
-
-                if (data.athletes) {
-                    data.athletes.forEach(pg => {
-                        if (pg.items) {
-                            pg.items.forEach(p => {
-                                if (p.injuries && p.injuries.length > 0 && p.injuries[0].status !== 'Active') {
-                                    injuredPlayers.push({ name: p.fullName || 'Unknown', status: p.injuries[0].status, detail: p.injuries[0].details });
-                                }
-                            });
-                        }
-                    });
-                }
-
-                if (injuredPlayers.length === 0) {
-                    container.innerHTML = '<p style="color:green; font-weight:bold; font-size:13px; text-align:center; padding-top:15px;">✅ Roster is fully healthy.</p>';
-                    return;
-                }
-
-                let html = `<table class="injury-table"><tr><th>Player</th><th>Status</th><th>Detail</th></tr>`;
-                injuredPlayers.forEach(p => {
-                    const statClass = p.status.toLowerCase() === 'out' ? 'inj-out' : 'inj-dtd';
-                    const detail = p.detail ? (p.detail.substring(0, 45) + '...') : 'No details provided';
-                    html += `<tr><td><b>${p.name}</b></td><td><span class="inj-status ${statClass}">${p.status}</span></td><td style="color:#666; font-size:10px;">${detail}</td></tr>`;
-                });
-                container.innerHTML = html + `</table>`;
-            } catch (e) { container.innerHTML = '<p style="color:red; font-size:13px;">Failed to load injury data.</p>'; }
-        }
-
         function fetchTeamData() {
             const selectEl = document.getElementById('team-select');
             const teamName = selectEl.value;
@@ -508,8 +475,7 @@
             document.getElementById('team-placeholder').style.display = 'none';
             document.getElementById('team-content').style.display = 'block';
 
-            fetchGamesAndDrawChart(espnId, teamAbbrev);
-            fetchInjuries(espnId);
+            fetchGamesAndDrawCharts(espnId, teamAbbrev);
             fetchNews(teamName);
         }
 
@@ -521,16 +487,19 @@
             return { icon: "⚖️", text: "NEUTRAL", color: "#555" };
         }
 
-        async function fetchGamesAndDrawChart(espnId, teamAbbrev) {
+        async function fetchGamesAndDrawCharts(espnId, teamAbbrev) {
             const nextContainer = document.getElementById('next-game-container');
             const pastContainer = document.getElementById('past-games-container');
             const hotContainer = document.getElementById('hot-indicator-container');
+            const h2hContainer = document.getElementById('h2h-container');
             
             nextContainer.innerHTML = '<div class="loading">Finding next game...</div>';
             pastContainer.innerHTML = '<div class="loading">Loading match history...</div>';
             hotContainer.innerHTML = '<div class="loading">Analyzing momentum...</div>';
+            h2hContainer.innerHTML = '<div class="loading">Loading H2H history...</div>';
 
             try {
+                // 1. Fetch main team schedule
                 const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule`);
                 const scheduleData = await scheduleRes.json();
 
@@ -540,11 +509,15 @@
                 const last5Games = completedGames.slice(-5);
                 const nextGame = upcomingGames.length > 0 ? upcomingGames[0] : null;
 
+                // Overall Performance Data
                 let winCount = 0; let totalPts = 0; let validGames = 0;
-                let myDataPts = []; let myWL = []; let labels = ["Game 1", "Game 2", "Game 3", "Game 4", "Game 5"];
+                let myDataPts = []; let myWL = []; let perfLabels = [];
 
-                last5Games.forEach(game => {
+                last5Games.forEach((game) => {
                     const comp = game.competitions[0];
+                    const dateStr = new Date(comp.date).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+                    perfLabels.push(dateStr);
+                    
                     const targetTeam = comp.competitors.find(c => c.team.id === espnId);
                     if (targetTeam && targetTeam.score) {
                         const pts = parseInt(targetTeam.score.value);
@@ -562,6 +535,7 @@
                     if (oppTeam) { oppId = oppTeam.team.id; oppAbbrev = oppTeam.team.abbreviation || "OPP"; }
                 }
 
+                // Opponent Overall Performance Data
                 if (oppId) {
                     try {
                         const oppRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${oppId}/schedule`);
@@ -579,61 +553,119 @@
                     } catch (e) { console.warn("Could not fetch opponent chart data"); }
                 }
 
-                drawPerformanceChart(labels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
+                drawChart('perfChart', perfLabels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
+
+                // --- NEW H2H LOGIC ---
+                let h2hGames = [];
+                if (oppId) {
+                    // Filter current season completed games for the opponent
+                    let currentSeasonH2H = completedGames.filter(e => e.competitions[0].competitors.some(c => String(c.team.id) === String(oppId)));
+                    
+                    // If less than 5, fetch previous season schedule to pad
+                    if (currentSeasonH2H.length < 5) {
+                        try {
+                            const prevRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule?season=2023`);
+                            const prevData = await prevRes.json();
+                            const prevCompleted = prevData.events.filter(e => e.competitions[0].status.type.completed === true);
+                            const prevH2H = prevCompleted.filter(e => e.competitions[0].competitors.some(c => String(c.team.id) === String(oppId)));
+                            h2hGames = [...prevH2H, ...currentSeasonH2H].slice(-5);
+                        } catch(e) { h2hGames = currentSeasonH2H; }
+                    } else { h2hGames = currentSeasonH2H.slice(-5); }
+                }
+
+                if (h2hGames.length > 0) {
+                    let h2hLabels = []; let h2hMyData = []; let h2hMyWL = []; let h2hOppData = []; let h2hOppWL = [];
+                    h2hGames.forEach(game => {
+                        const comp = game.competitions[0];
+                        h2hLabels.push(new Date(comp.date).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' }));
+                        const me = comp.competitors.find(c => c.team.id === espnId);
+                        const opp = comp.competitors.find(c => c.team.id === oppId);
+                        if (me && opp && me.score && opp.score) {
+                            h2hMyData.push(parseInt(me.score.value)); h2hMyWL.push(me.winner ? 'W' : 'L');
+                            h2hOppData.push(parseInt(opp.score.value)); h2hOppWL.push(opp.winner ? 'W' : 'L');
+                        }
+                    });
+                    h2hContainer.innerHTML = '<canvas id="h2hChart"></canvas>';
+                    drawChart('h2hChart', h2hLabels, teamAbbrev, h2hMyData, h2hMyWL, oppAbbrev, h2hOppData, h2hOppWL);
+                } else {
+                    h2hContainer.innerHTML = '<p style="text-align:center; color:#777; font-size:13px; margin-top:50px;">No recent Head-to-Head data available.</p>';
+                }
 
                 // Build Compact Team vs Opponent Momentum Box
                 let myTrend = getTrendStatus(winCount, validGames);
                 let oppTrend = getTrendStatus(oppWinCount, oppValidGames);
-                const avgPts = validGames > 0 ? Math.round(totalPts / validGames) : "--";
 
                 hotContainer.innerHTML = `
                     <div class="panel-box" style="padding: 15px; justify-content: space-evenly;">
                         <div style="font-size:13px; font-weight:bold; text-align:center; color:#555; margin-bottom:15px; border-bottom:2px solid #eee; padding-bottom:5px;">RECENT FORM (L5 MATCHES)</div>
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            
                             <div style="flex:1; text-align:center; border-right: 1px dashed #ccc; padding: 0 5px;">
                                 <div style="font-size:14px; font-weight:bold; color:#1d428a; margin-bottom:8px;">${teamAbbrev}</div>
                                 <div style="display:inline-block; padding: 4px 8px; border-radius: 4px; font-weight:bold; font-size:11px; color:#fff; background-color:${myTrend.color}; margin-bottom:8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${myTrend.icon} ${myTrend.text}</div>
                                 <div style="font-size:13px; color:#333; margin-bottom:2px;"><b>${winCount}W - ${validGames - winCount}L</b></div>
-                                <div style="font-size:11px; color:#
-                                777;">Avg Pts: ${validGames > 0 ? Math.round(totalPts / validGames) : "--"}</div>
-                                </div>
-                                <div style="font-size: 16px; font-weight: bold; color: #ccc; padding: 0 10px;">VS</div>
-                                <div style="flex:1; text-align:center; padding: 0 5px;">
-                                    <div style="font-size:14px; font-weight:bold; color:#555; margin-bottom:8px;">${oppAbbrev}</div>
-                                    <div style="display:inline-block; padding: 4px 8px; border-radius: 4px; font-weight:bold; font-size:11px; color:#fff; background-color:${oppTrend.color}; margin-bottom:8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${oppTrend.icon} ${oppTrend.text}</div>
-                                    <div style="font-size:13px; color:#333; margin-bottom:2px;"><b>${oppWinCount}W - ${oppValidGames - oppWinCount}L</b></div>
-                                    <div style="font-size:11px; color:#777;">Avg Pts: ${oppValidGames > 0 ? Math.round(oppTotalPts / oppValidGames) : "--"}</div>
-                                </div>
+                                <div style="font-size:11px; color:#777;">Avg Pts: ${validGames > 0 ? Math.round(totalPts / validGames) : "--"}</div>
+                            </div>
+                            <div style="font-size: 14px; font-weight: bold; color: #ccc; padding: 0 10px;">VS</div>
+                            <div style="flex:1; text-align:center; padding: 0 5px;">
+                                <div style="font-size:14px; font-weight:bold; color:#555; margin-bottom:8px;">${oppAbbrev}</div>
+                                <div style="display:inline-block; padding: 4px 8px; border-radius: 4px; font-weight:bold; font-size:11px; color:#fff; background-color:${oppTrend.color}; margin-bottom:8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${oppTrend.icon} ${oppTrend.text}</div>
+                                <div style="font-size:13px; color:#333; margin-bottom:2px;"><b>${oppWinCount}W - ${oppValidGames - oppWinCount}L</b></div>
+                                <div style="font-size:11px; color:#777;">Avg Pts: ${oppValidGames > 0 ? Math.round(oppTotalPts / oppValidGames) : "--"}</div>
                             </div>
                         </div>
-                    `;
+                    </div>
+                `;
 
-                if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true, nextGame); } 
+                if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true); } 
                 else { nextContainer.innerHTML = '<div class="panel-box"><p style="text-align:center; color:#777;">No upcoming games scheduled.</p></div>'; }
 
                 const reversedPast = [...last5Games].reverse();
                 if (reversedPast.length === 0) { pastContainer.innerHTML = '<p>No completed games found.</p>'; } 
                 else {
-                    const pastHTMLs = await Promise.all(reversedPast.map(g => buildGameCard(g.id, false, null)));
+                    const pastHTMLs = await Promise.all(reversedPast.map(g => buildGameCard(g.id, false)));
                     pastContainer.innerHTML = pastHTMLs.join('');
                 }
-            } catch (error) { nextContainer.innerHTML = '<p style="color:red;">Error loading games.</p>'; pastContainer.innerHTML = ''; }
+            } catch (error) { console.error(error); nextContainer.innerHTML = '<p style="color:red;">Error loading games.</p>'; pastContainer.innerHTML = ''; }
         }
 
-        function drawPerformanceChart(labels, myName, myData, myWL, oppName, oppData, oppWL) {
-            const ctx = document.getElementById('perfChart').getContext('2d');
-            if(perfChartInstance) perfChartInstance.destroy();
+        // Generic Chart Builder
+        function drawChart(canvasId, labels, myName, myData, myWL, oppName, oppData, oppWL) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            if(canvasId === 'perfChart' && perfChartInstance) perfChartInstance.destroy();
+            if(canvasId === 'h2hChart' && h2hChartInstance) h2hChartInstance.destroy();
+            
             let datasets = [{
-                label: `${myName} Pts`, data: myData, winLossData: myWL, borderColor: '#1d428a', backgroundColor: 'rgba(29, 66, 138, 0.2)', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#1d428a', pointRadius: 5
+                label: `${myName} Pts`, data: myData, winLossData: myWL, 
+                borderColor: '#1d428a', backgroundColor: 'rgba(29, 66, 138, 0.2)', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#1d428a', pointRadius: 5,
+                wlColors: { w: '#198754', l: '#dc3545' } // Main Team W/L Colors (Green/Red)
             }];
+
             if (oppData && oppData.length > 0) {
-                datasets.push({ label: `${oppName} Pts`, data: oppData, winLossData: oppWL, borderColor: '#777777', backgroundColor: 'rgba(119, 119, 119, 0.1)', borderWidth: 2, fill: true, tension: 0.4, borderDash: [5, 5], pointBackgroundColor: '#555', pointRadius: 4 });
+                datasets.push({ 
+                    label: `${oppName} Pts`, data: oppData, winLossData: oppWL, 
+                    borderColor: '#777777', backgroundColor: 'rgba(119, 119, 119, 0.1)', borderWidth: 2, fill: true, tension: 0.4, borderDash: [5, 5], pointBackgroundColor: '#555', pointRadius: 4,
+                    wlColors: { w: '#0dcaf0', l: '#fd7e14' } // Opponent W/L Colors (Cyan/Orange)
+                });
             }
-            perfChartInstance = new Chart(ctx, { type: 'line', data: { labels: labels, datasets: datasets }, options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } }, plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }, scales: { y: { suggestedMin: 80, suggestedMax: 135 } } }, plugins: [winLossPlugin] });
+
+            const chart = new Chart(ctx, { 
+                type: 'line', 
+                data: { labels: labels, datasets: datasets }, 
+                options: { 
+                    responsive: true, maintainAspectRatio: false, 
+                    layout: { padding: { top: 20, bottom: 10 } }, 
+                    plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }, 
+                    scales: { y: { suggestedMin: 80, suggestedMax: 135 } } 
+                }, 
+                plugins: [winLossPlugin] 
+            });
+
+            if(canvasId === 'perfChart') perfChartInstance = chart;
+            if(canvasId === 'h2hChart') h2hChartInstance = chart;
         }
 
-        async function buildGameCard(matchId, isUpcoming, nextGameObj) {
+        async function buildGameCard(matchId, isUpcoming) {
             try {
                 const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${matchId}`);
                 const data = await res.json();
@@ -665,11 +697,13 @@
 
                     if (hStats && aStats) {
                         const estGamePace = (hStats.estPace + aStats.estPace) / 2;
-                        let homeRawPts = ((hStats.offRtg + aStats.defRtg) / 2) * (estGamePace / 100) + 3.0 + ((hStats.formWeight - 0.5) * 5);
+                        let homeRawPts = ((hStats.offRtg + aStats.defRtg) / 2) * (estGamePace / 100) + 3.0 + ((hStats.formWeight - 0.
+                          5) * 5);
                         let awayRawPts = ((aStats.offRtg + hStats.defRtg) / 2) * (estGamePace / 100) + ((aStats.formWeight - 0.5) * 5);
                         let totalExp = homeRawPts + awayRawPts;
                         let homeProb = Math.round((homeRawPts / totalExp) * 100);
                         
+                        // Exaggerate probabilities slightly for visual effect
                         homeProb = homeProb + ((homeProb - 50) * 1.5); 
                         if(homeProb > 95) homeProb = 95; if(homeProb < 5) homeProb = 5;
                         homeProb = Math.round(homeProb);
@@ -754,6 +788,5 @@
         }
     </script>
 </body>
-</html>
-
-                                
+</html>                                                                                     
+                                                                                                              
