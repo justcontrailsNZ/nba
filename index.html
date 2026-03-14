@@ -63,7 +63,7 @@
         .trend-details { font-size: 14px; color: #555; text-align: center; line-height: 1.6;}
         .trend-details b { color: #1d428a; font-size: 16px; }
 
-        .chart-container { position: relative; height: 200px; width: 100%; }
+        .chart-container { position: relative; height: 210px; width: 100%; padding-top: 15px;}
 
         /* Injury Table */
         table.injury-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;}
@@ -169,7 +169,7 @@
                 <div class="flex-row">
                     <div class="flex-item" id="hot-indicator-container"></div>
                     <div class="flex-item panel-box">
-                        <div style="font-size:14px; font-weight:bold; color:#555; margin-bottom:10px; text-align:center;">Offensive Form: Team vs Upcoming Opponent</div>
+                        <div style="font-size:14px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Offensive Form: Team vs Upcoming Opponent</div>
                         <div class="chart-container"><canvas id="perfChart"></canvas></div>
                     </div>
                 </div>
@@ -219,6 +219,29 @@
         const NEWS_API_KEY = 'pub_dce2909d7f99428199a11eb8be5c290e';
         let perfChartInstance = null;
         window.teamAnalyticsStore = {}; 
+
+        // --- Custom Chart.js Plugin to draw W/L floating text ---
+        const winLossPlugin = {
+            id: 'winLossPlugin',
+            afterDatasetsDraw(chart) {
+                const { ctx } = chart;
+                ctx.font = 'bold 13px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    meta.data.forEach((element, index) => {
+                        const wl = dataset.winLossData ? dataset.winLossData[index] : null;
+                        if (wl) {
+                            ctx.fillStyle = wl === 'W' ? '#28a745' : '#c8102e'; // Green for Win, Red for Loss
+                            // Draw the letter exactly 10 pixels above the data dot
+                            ctx.fillText(wl, element.x, element.y - 10);
+                        }
+                    });
+                });
+            }
+        };
 
         function initGlobalData() {
             fetchStandings();
@@ -272,59 +295,52 @@
             } catch (e) { document.getElementById('standings-container').innerHTML = '<p style="color:red">Failed to load standings.</p>'; }
         }
 
-        // --- RIGOROUS RECURSIVE JSON HUNTER FOR LEAGUE LEADERS ---
-        function recursiveFindLeaders(obj, targetStat) {
-            if (!obj) return null;
-            if (Array.isArray(obj)) {
-                for (let item of obj) {
-                    if (item.name && item.name.toLowerCase() === targetStat.toLowerCase() && item.leaders) return item.leaders;
-                    let result = recursiveFindLeaders(item, targetStat);
-                    if (result) return result;
-                }
-            } else if (typeof obj === 'object') {
-                if (obj.name && obj.name.toLowerCase() === targetStat.toLowerCase() && obj.leaders) return obj.leaders;
-                for (let key in obj) {
-                    let result = recursiveFindLeaders(obj[key], targetStat);
-                    if (result) return result;
-                }
-            }
-            return null;
-        }
-
+        // --- FETCH LEAGUE LEADERS VIA ESPN CORE API ($REF HUNTING) ---
         async function fetchLeaders() {
             const statType = document.getElementById('leader-stat-select').value;
-            document.getElementById('leaders-container').innerHTML = '<div class="loading">Loading Leaders...</div>';
+            const container = document.getElementById('leaders-container');
+            container.innerHTML = '<div class="loading">Hunting deep API for Leaders...</div>';
             
             try {
-                // ESPN standard leaders endpoint
-                const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/leaders?limit=15');
+                // We use the Core ESPN endpoint which is highly stable but requires decoding $ref URLs
+                const res = await fetch('https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/leaders?limit=15');
                 const data = await res.json();
                 
-                // Deep scan the API payload for the exact requested stat
-                const targetData = recursiveFindLeaders(data, statType);
+                const category = data.categories.find(c => c.name === statType);
+                if (!category || !category.leaders) throw new Error("Category not found");
 
-                if (!targetData || targetData.length === 0) {
-                    document.getElementById('leaders-container').innerHTML = '<p style="color:#777;">Data unavailable right now.</p>'; return;
-                }
-                
-                const statSuffix = statType.toUpperCase().substring(0,3);
+                const topLeaders = category.leaders.slice(0, 15);
+                const statSuffix = category.abbreviation || statType.toUpperCase().substring(0,3);
+
+                // Promise.all instantly chases all 15 reference URLs simultaneously to get the actual player names
+                const leadersData = await Promise.all(topLeaders.map(async (leader) => {
+                    try {
+                        const athleteUrl = leader.athlete.$ref.replace("http://", "https://");
+                        const athleteRes = await fetch(athleteUrl);
+                        const athleteData = await athleteRes.json();
+                        return {
+                            name: athleteData.shortName || athleteData.displayName || 'Unknown',
+                            value: leader.displayValue
+                        };
+                    } catch(e) { return null; }
+                }));
+
+                const validLeaders = leadersData.filter(l => l !== null);
+
                 let html = '<ul class="leaders-list">';
-                let rank = 1;
-                targetData.slice(0, 15).forEach(p => {
-                    const pName = p.athlete?.shortName || p.athlete?.displayName || 'Unknown';
-                    const teamAbbr = p.team?.abbreviation ? `(${p.team.abbreviation})` : '';
-                    const val = p.displayValue || p.value || 0;
-                    html += `<li><span><span class="leader-rank">${rank}.</span> ${pName} <span style="color:#888;font-size:11px;">${teamAbbr}</span></span> <span class="leader-val">${val} <span style="font-size:10px; color:#777;">${statSuffix}</span></span></li>`;
-                    rank++;
+                validLeaders.forEach((p, idx) => {
+                    html += `<li><span><span class="leader-rank">${idx + 1}.</span> ${p.name}</span> <span class="leader-val">${p.value} <span style="font-size:10px; color:#777;">${statSuffix}</span></span></li>`;
                 });
-                html += `</ul>`;
-                document.getElementById('leaders-container').innerHTML = html;
+                html += '</ul>';
+                container.innerHTML = html;
+
             } catch (e) {
-                document.getElementById('leaders-container').innerHTML = '<p style="color:red">Failed to load leaders.</p>';
+                console.error(e);
+                container.innerHTML = '<p style="color:red; text-align:center;">Failed to load leaders.</p>';
             }
         }
 
-        // --- FETCH INJURY REPORT (FIXED TO SCAN ENTIRE ROSTER) ---
+        // --- FETCH INJURY REPORT (FIXED: NOW SCANS ENTIRE POSITIONAL ROSTER) ---
         async function fetchInjuries(espnId) {
             const container = document.getElementById('injuries-container');
             container.innerHTML = '<div class="loading">Analyzing roster health...</div>';
@@ -334,8 +350,8 @@
                 const data = await res.json();
                 let injuredPlayers = [];
 
-                // The fix: Loop through every position group (PG, SG, SF, etc.), not just athletes[0]
                 if (data.athletes) {
+                    // We must loop through all Positional Groups (Point Guards, Shooting Guards, Centers, etc.)
                     data.athletes.forEach(positionGroup => {
                         if (positionGroup.items) {
                             positionGroup.items.forEach(p => {
@@ -351,14 +367,14 @@
                 }
 
                 if (injuredPlayers.length === 0) {
-                    container.innerHTML = '<p style="color:green; font-weight:bold; font-size:13px; text-align:center;">✅ Roster is fully healthy.</p>';
+                    container.innerHTML = '<p style="color:green; font-weight:bold; font-size:13px; text-align:center; padding-top:15px;">✅ Roster is fully healthy.</p>';
                     return;
                 }
 
                 let html = `<table class="injury-table"><tr><th>Player</th><th>Status</th><th>Detail</th></tr>`;
                 injuredPlayers.forEach(p => {
                     const statClass = p.status.toLowerCase() === 'out' ? 'inj-out' : 'inj-dtd';
-                    const detail = p.detail ? (p.detail.substring(0, 40) + '...') : 'No details provided';
+                    const detail = p.detail ? (p.detail.substring(0, 45) + '...') : 'No details provided';
                     html += `<tr><td><b>${p.name}</b></td><td><span class="inj-status ${statClass}">${p.status}</span></td><td style="color:#666; font-size:11px;">${detail}</td></tr>`;
                 });
                 html += `</table>`;
@@ -374,7 +390,7 @@
             const selectEl = document.getElementById('team-select');
             const teamName = selectEl.value;
             const espnId = selectEl.options[selectEl.selectedIndex].getAttribute('data-id');
-            const teamAbbrev = selectEl.options[selectEl.selectedIndex].text.split(' ').pop(); // e.g. "Lakers"
+            const teamAbbrev = selectEl.options[selectEl.selectedIndex].text.split(' ').pop(); 
 
             document.getElementById('team-placeholder').style.display = 'none';
             document.getElementById('team-content').style.display = 'block';
@@ -384,7 +400,7 @@
             fetchNews(teamName);
         }
 
-        // --- FETCH GAMES & DRAW MULTI-LINE CHART ---
+        // --- FETCH GAMES & DRAW MULTI-LINE CHART WITH W/L ---
         async function fetchGamesAndDrawChart(espnId, teamAbbrev) {
             const nextContainer = document.getElementById('next-game-container');
             const pastContainer = document.getElementById('past-games-container');
@@ -402,13 +418,13 @@
                 const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
                 const upcomingGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === false);
 
-                const last5Games = completedGames.slice(-5); // Keep chronological for chart
+                const last5Games = completedGames.slice(-5);
                 const nextGame = upcomingGames.length > 0 ? upcomingGames[0] : null;
 
-                // 2. Build Primary Team Chart Data & Momentum
+                // 2. Build Primary Team Chart Data, W/L, & Momentum
                 let winCount = 0; let totalPts = 0; let validGames = 0;
-                let myDataPts = [];
-                let labels = ["5 Games Ago", "4 Games Ago", "3 Games Ago", "2 Games Ago", "Last Game"];
+                let myDataPts = []; let myWL = [];
+                let labels = ["Game 1", "Game 2", "Game 3", "Game 4", "Game 5"];
 
                 last5Games.forEach(game => {
                     const comp = game.competitions[0];
@@ -418,11 +434,12 @@
                         if (targetTeam.winner) winCount++;
                         totalPts += pts; validGames++;
                         myDataPts.push(pts);
+                        myWL.push(targetTeam.winner ? 'W' : 'L'); // Push 'W' or 'L' based on result
                     }
                 });
 
-                // 3. Find Opponent and Fetch Their Chart Data
-                let oppId = null; let oppAbbrev = "Opponent"; let oppDataPts = [];
+                // 3. Find Opponent and Fetch Their Chart Data & W/L
+                let oppId = null; let oppAbbrev = "Opponent"; let oppDataPts = []; let oppWL = [];
                 if (nextGame) {
                     const comp = nextGame.competitions[0];
                     const oppTeam = comp.competitors.find(c => c.team.id !== espnId);
@@ -442,13 +459,16 @@
                         oppLast5.forEach(game => {
                             const comp = game.competitions[0];
                             const targetOpp = comp.competitors.find(c => c.team.id === oppId);
-                            if (targetOpp && targetOpp.score) oppDataPts.push(parseInt(targetOpp.score.value));
+                            if (targetOpp && targetOpp.score) {
+                                oppDataPts.push(parseInt(targetOpp.score.value));
+                                oppWL.push(targetOpp.winner ? 'W' : 'L'); // Opponent's W/L
+                            }
                         });
                     } catch (e) { console.warn("Could not fetch opponent chart data"); }
                 }
 
-                // Render Multi-Line Chart
-                drawPerformanceChart(labels, teamAbbrev, myDataPts, oppAbbrev, oppDataPts);
+                // Render Multi-Line Chart w/ Win/Loss Plugin
+                drawPerformanceChart(labels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
 
                 // Render Momentum Box
                 let trendIcon = "⚖️"; let trendText = "NEUTRAL"; let trendColor = "#555";
@@ -485,28 +505,28 @@
             }
         }
 
-        // --- DRAW MULTI-LINE CHART.JS ---
-        function drawPerformanceChart(labels, myName, myData, oppName, oppData) {
+        // --- DRAW MULTI-LINE CHART.JS WITH W/L TAGS ---
+        function drawPerformanceChart(labels, myName, myData, myWL, oppName, oppData, oppWL) {
             const ctx = document.getElementById('perfChart').getContext('2d');
             if(perfChartInstance) perfChartInstance.destroy();
             
             let datasets = [{
                 label: `${myName} Pts`,
                 data: myData,
-                borderColor: '#1d428a',
-                backgroundColor: 'rgba(29, 66, 138, 0.2)',
+                winLossData: myWL, // Attached custom property for the Plugin
+                borderColor: '#1d428a', backgroundColor: 'rgba(29, 66, 138, 0.2)',
                 borderWidth: 3, fill: true, tension: 0.4,
-                pointBackgroundColor: '#c8102e', pointRadius: 5
+                pointBackgroundColor: '#1d428a', pointRadius: 5
             }];
 
             if (oppData && oppData.length > 0) {
                 datasets.push({
-                    label: `Upcoming: ${oppName} Pts`,
+                    label: `${oppName} Pts`,
                     data: oppData,
-                    borderColor: '#777777',
-                    backgroundColor: 'rgba(119, 119, 119, 0.1)',
+                    winLossData: oppWL, // Attached custom property for the Plugin
+                    borderColor: '#777777', backgroundColor: 'rgba(119, 119, 119, 0.1)',
                     borderWidth: 2, fill: true, tension: 0.4, borderDash: [5, 5],
-                    pointBackgroundColor: '#333', pointRadius: 4
+                    pointBackgroundColor: '#555', pointRadius: 4
                 });
             }
 
@@ -515,9 +535,11 @@
                 data: { labels: labels, datasets: datasets },
                 options: {
                     responsive: true, maintainAspectRatio: false,
+                    layout: { padding: { top: 20 } }, // Space at the top for W/L labels
                     plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } },
-                    scales: { y: { suggestedMin: 80, suggestedMax: 130 } }
-                }
+                    scales: { y: { suggestedMin: 80, suggestedMax: 135 } }
+                },
+                plugins: [winLossPlugin] // Activate our custom W/L drawing engine
             });
         }
 
