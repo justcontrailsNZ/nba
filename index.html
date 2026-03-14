@@ -263,7 +263,7 @@
             fetchLeaders();
         }
 
-        // --- FETCH STANDINGS (SIDE-BY-SIDE WITH ABBREVIATIONS & PACE MATH) ---
+              // --- FETCH STANDINGS (SIDE-BY-SIDE WITH ABBREVIATIONS & PACE MATH) ---
         async function fetchStandings() {
             try {
                 const res = await fetch('https://site.api.espn.com/apis/v2/sports/basketball/nba/standings');
@@ -278,8 +278,13 @@
                     const allEntries = [...east.standings.entries, ...west.standings.entries];
                     
                     allEntries.forEach(t => {
-                        totalLeaguePF += parseFloat(t.stats.find(s => s.name === 'pointsFor')?.value || 110);
-                        totalLeaguePA += parseFloat(t.stats.find(s => s.name === 'pointsAgainst')?.value || 110);
+                        // FIX: Divide total points by games played to get PPG
+                        const wins = t.stats.find(s => s.name === 'wins')?.value || 0;
+                        const losses = t.stats.find(s => s.name === 'losses')?.value || 0;
+                        const gp = (wins + losses) || 1;
+                        
+                        totalLeaguePF += parseFloat(t.stats.find(s => s.name === 'pointsFor')?.value || 110) / gp;
+                        totalLeaguePA += parseFloat(t.stats.find(s => s.name === 'pointsAgainst')?.value || 110) / gp;
                         teamCount++;
                     });
                     
@@ -305,6 +310,7 @@
                             const seed = team.stats.find(s => s.name === 'playoffSeed')?.value || '-';
                             const wins = team.stats.find(s => s.name === 'wins')?.value || 0;
                             const losses = team.stats.find(s => s.name === 'losses')?.value || 0;
+                            const gamesPlayed = (wins + losses) || 1;
                             const gb = team.stats.find(s => s.name === 'gamesBehind')?.displayValue || '-';
                             const l10Obj = team.stats.find(s => s.abbreviation === 'L10' || s.name === 'last10Games');
                             const l10 = l10Obj?.displayValue || '-';
@@ -312,9 +318,12 @@
                             let abbrev = team.team.abbreviation;
                             if(!abbrev) abbrev = team.team.shortDisplayName.substring(0,3).toUpperCase();
                             
-                            // Background Analytics Gathering - PACE ADJUSTED MATH
-                            const ppg = team.stats.find(s => s.name === 'pointsFor')?.value || 110;
-                            const oppPpg = team.stats.find(s => s.name === 'pointsAgainst')?.value || 110;
+                            // FIX: Convert Season Points to Points Per Game
+                            const seasonPF = team.stats.find(s => s.name === 'pointsFor')?.value || 110;
+                            const seasonPA = team.stats.find(s => s.name === 'pointsAgainst')?.value || 110;
+                            const ppg = seasonPF / gamesPlayed;
+                            const oppPpg = seasonPA / gamesPlayed;
+                            
                             let l10Wins = 5;
                             if(l10 !== '-') { const parts = l10.split('-'); l10Wins = parseInt(parts[0]); }
                             
@@ -327,7 +336,7 @@
                             const dRtg_100 = (oppPpg / estPace) * 100;
                             
                             window.teamAnalyticsStore[team.team.id] = {
-                                winPct: (wins / (wins + losses)) || 0.5,
+                                winPct: (wins / gamesPlayed) || 0.5,
                                 estPace: estPace,
                                 offRtg: oRtg_100, 
                                 defRtg: dRtg_100,
