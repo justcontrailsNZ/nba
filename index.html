@@ -21,8 +21,8 @@
             margin: 0 auto;
         }
         
-        .left-col { flex: 6; min-width: 600px; }
-        .right-col { flex: 4; min-width: 400px; display: flex; flex-direction: column; gap: 20px; }
+        .left-col { flex: 6.5; min-width: 600px; }
+        .right-col { flex: 3.5; min-width: 350px; display: flex; flex-direction: column; gap: 20px; }
 
         .header-box { text-align: center; margin-bottom: 20px; }
         h1 { color: #1d428a; margin-bottom: 5px; }
@@ -38,16 +38,37 @@
             padding-bottom: 5px; margin-bottom: 15px; display: inline-block;
         }
 
-        /* Grids & Rows */
+        /* Layout Grids */
         .grid { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 40px; }
         .upcoming-row { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 40px; align-items: stretch; }
-        .upcoming-item { flex: 1; min-width: 300px; max-width: 360px; }
+        .upcoming-item { flex: 1; min-width: 300px; }
+        
+        /* Past Games Specific Grid (3 per row) */
+        .past-games-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 40px;
+        }
+
+        /* Responsive Breakpoints for Past Games Grid */
+        @media (max-width: 1200px) { .past-games-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 800px) { .past-games-grid { grid-template-columns: 1fr; } }
         
         .game-card {
             background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
             width: 100%; padding: 15px; box-sizing: border-box;
             display: flex; flex-direction: column; border: 1px solid #e1e4e8; height: 100%;
         }
+        
+        /* Specific sizing overrides for past game cards to fit 3 perfectly */
+        .past-games-grid .game-card { padding: 12px; }
+        .past-games-grid .game-header { font-size: 11px; margin-bottom: 6px; padding-bottom: 6px;}
+        .past-games-grid .team-score { font-size: 14px; margin: 4px 0; }
+        .past-games-grid .spread-box { font-size: 10px; padding: 4px; margin: 6px 0;}
+        .past-games-grid .team-perf-title { font-size: 10px; padding: 4px 8px; }
+        .past-games-grid .performer-list { font-size: 11px; padding: 6px 8px; }
+
         .game-header { text-align: center; font-size: 13px; color: #777; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 10px; font-weight: bold; }
         .team-score { display: flex; justify-content: space-between; font-size: 17px; margin: 6px 0; font-weight: bold; }
         .winner { color: #1d428a; }
@@ -77,10 +98,11 @@
         .pred-text { font-size: 12px; color: #444; }
 
         /* Performers Box (For Past Games Only) */
-        .performers-box { border-radius: 6px; margin-top: 10px; background-color: #fff; border: 1px solid #ddd; overflow: hidden; }
-        .team-perf-title { font-size: 12px; font-weight: bold; text-transform: uppercase; padding: 6px 10px; color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,0.6); }
-        .performer-list { list-style-type: none; padding: 8px 10px; margin: 0; font-size: 12px; color: #333; background-color: #fafafa; }
-        .performer-list li { margin-bottom: 4px; }
+        .performers-box { border-radius: 6px; margin-top: 8px; background-color: #fff; border: 1px solid #ddd; overflow: hidden; }
+        .team-perf-title { font-weight: bold; text-transform: uppercase; color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,0.6); }
+        .performer-list { list-style-type: none; margin: 0; color: #333; background-color: #fafafa; }
+        .performer-list li { margin-bottom: 4px; display: flex; flex-direction: column; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+        .performer-list li:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0;}
 
         /* News Cards */
         .news-card {
@@ -94,15 +116,22 @@
         .news-card p { font-size: 13px; color: #555; line-height: 1.4; flex-grow: 1; margin: 10px 0; }
         .news-date { font-size: 11px; color: #888; margin-top: auto; padding-top: 10px; border-top: 1px solid #eee; }
 
-        /* Widgets (Standings) */
+        /* Widgets (Standings & Leaders) */
         .widget-box { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 15px; border: 1px solid #e1e4e8; }
-        .widget-box h2 { font-size: 18px; color: #333; margin-top: 0; border-bottom: 2px solid #1d428a; padding-bottom: 5px; }
+        .widget-box h2 { font-size: 17px; color: #333; margin-top: 0; border-bottom: 2px solid #1d428a; padding-bottom: 5px; margin-bottom: 10px; }
         
-        .conf-title { font-size: 14px; color: white; margin: 15px 0 0 0; background: #c8102e; padding: 8px; border-radius: 4px 4px 0 0; text-align: center;}
+        .conf-title { font-size: 13px; color: white; margin: 15px 0 0 0; background: #c8102e; padding: 6px; border-radius: 4px 4px 0 0; text-align: center;}
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
         th { text-align: left; padding: 6px; color: #555; background-color: #f1f3f5; border-bottom: 2px solid #ddd; }
         td { padding: 6px; border-bottom: 1px solid #eee; }
         tr:hover { background-color: #f9f9f9; }
+
+        /* Top 15 Points Leaders List */
+        .leaders-list { margin: 0; padding: 0; list-style-type: none; font-size: 13px; color: #333; }
+        .leaders-list li { display: flex; justify-content: space-between; padding: 8px 5px; border-bottom: 1px dashed #e1e4e8; align-items: center; }
+        .leaders-list li:last-child { border-bottom: none; }
+        .leader-rank { font-weight: bold; color: #999; width: 22px; display: inline-block; }
+        .leader-val { font-weight: bold; color: #c8102e; font-size: 15px; }
 
         .loading { color: #666; font-style: italic; font-size: 13px; padding: 10px; }
     </style>
@@ -162,7 +191,8 @@
                 </div>
                 
                 <div class="section-title">Last 5 Matches</div>
-                <div class="grid" id="past-games-container"></div>
+                <!-- Updated to use the new 3-column specific CSS Grid -->
+                <div class="past-games-grid" id="past-games-container"></div>
 
                 <div class="section-title">Latest Team News</div>
                 <div class="grid" id="news-container"></div>
@@ -178,6 +208,11 @@
                 <h2>🏆 NBA Standings</h2>
                 <div id="standings-container"><div class="loading">Loading Standings...</div></div>
             </div>
+            
+            <div class="widget-box">
+                <h2>🔥 League Points Leaders</h2>
+                <div id="leaders-container"><div class="loading">Loading Leaders...</div></div>
+            </div>
         </div>
     </div>
 
@@ -186,6 +221,7 @@
 
         function initGlobalData() {
             fetchStandings();
+            fetchLeaders();
         }
 
         async function fetchStandings() {
@@ -220,6 +256,44 @@
                 document.getElementById('standings-container').innerHTML = html;
             } catch (e) {
                 document.getElementById('standings-container').innerHTML = '<p style="color:red">Failed to load standings.</p>';
+            }
+        }
+
+        async function fetchLeaders() {
+            try {
+                const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/statistics?limit=15');
+                const data = await res.json();
+                let pointsData = null;
+
+                if (data.stats) {
+                    for (let statGroup of data.stats) {
+                        if (statGroup.categories) {
+                            for (let cat of statGroup.categories) {
+                                if (cat.name === 'points' || cat.name === 'pointsPerGame') {
+                                    pointsData = cat.leaders; break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!pointsData || pointsData.length === 0) {
+                    document.getElementById('leaders-container').innerHTML = '<p>No points data available right now.</p>'; return;
+                }
+                
+                let html = '<ul class="leaders-list">';
+                let rank = 1;
+                pointsData.slice(0, 15).forEach(p => {
+                    const pName = p.athlete?.shortName || p.athlete?.displayName || 'Unknown';
+                    const teamAbbr = p.team?.abbreviation ? `(${p.team.abbreviation})` : '';
+                    const val = p.displayValue || p.value || 0;
+                    html += `<li><span><span class="leader-rank">${rank}.</span> ${pName} <span style="color:#888;font-size:11px;">${teamAbbr}</span></span> <span class="leader-val">${val} <span style="font-size:10px; color:#777;">PTS</span></span></li>`;
+                    rank++;
+                });
+                html += `</ul>`;
+                document.getElementById('leaders-container').innerHTML = html;
+            } catch (e) {
+                document.getElementById('leaders-container').innerHTML = '<p style="color:red">Failed to load leaders.</p>';
             }
         }
 
@@ -344,7 +418,7 @@
                 if (isUpcoming) {
                     const parseWinPct = (teamObj) => {
                         try {
-                            const recStr = teamObj.record[0].summary; // e.g. "45-20"
+                            const recStr = teamObj.record[0].summary;
                             const parts = recStr.split('-');
                             const w = parseInt(parts[0]); const l = parseInt(parts[1]);
                             return w / (w + l);
@@ -393,7 +467,7 @@
                                 const top3 = activePlayers.slice(0, 3);
                                 if(top3.length > 0) {
                                     top3.forEach(p => {
-                                        performersHTML += `<li><b>${p.athlete?.shortName || 'Unknown'}</b>: ${(p.stats && p.stats[ptsIdx]) || 0} PTS, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</li>`;
+                                        performersHTML += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
                                     });
                                 } else { performersHTML += `<li>No active player stats</li>`; }
                             } else { performersHTML += `<li>Stats not available</li>`; }
