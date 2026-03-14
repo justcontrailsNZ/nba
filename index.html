@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NBA Team News</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            text-align: center;
+            padding: 20px;
+        }
+        h1 { color: #1d428a; } /* NBA Blue */
+        .controls { margin-bottom: 30px; }
+        select, button {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            margin: 5px;
+        }
+        button {
+            background-color: #c8102e; /* NBA Red */
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover { background-color: #a00c24; }
+        
+        #news-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            width: 300px;
+            overflow: hidden;
+            text-align: left;
+            transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-5px); }
+        .card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+        }
+        .card-content { padding: 15px; }
+        .card-content h3 {
+            font-size: 18px;
+            margin-top: 0;
+        }
+        .card-content a {
+            text-decoration: none;
+            color: #1d428a;
+        }
+        .card-content p {
+            font-size: 14px;
+            color: #555;
+        }
+        .date {
+            font-size: 12px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🏀 NBA Team News Tracker</h1>
+    
+    <div class="controls">
+        <select id="team-select">
+            <option value="Boston Celtics">Boston Celtics</option>
+            <option value="Brooklyn Nets">Brooklyn Nets</option>
+            <option value="Dallas Mavericks">Dallas Mavericks</option>
+            <option value="Golden State Warriors">Golden State Warriors</option>
+            <option value="Los Angeles Lakers">Los Angeles Lakers</option>
+            <option value="Miami Heat">Miami Heat</option>
+            <option value="New York Knicks">New York Knicks</option>
+            <option value="Denver Nuggets">Denver Nuggets</option>
+            <!-- You can add all 30 NBA teams here following the same format -->
+        </select>
+        <button onclick="fetchNews()">Get Latest News</button>
+    </div>
+
+    <div id="news-container">
+        <p>Select a team and click "Get Latest News" to begin.</p>
+    </div>
+
+    <script>
+        // REPLACE 'YOUR_API_KEY_HERE' WITH YOUR ACTUAL GNEWS API KEY
+        const API_KEY = 06019f5d24ba88336ed458e145a80d1e;
+
+        async function fetchNews() {
+            const team = document.getElementById('team-select').value;
+            const container = document.getElementById('news-container');
+            
+            // Show loading state
+            container.innerHTML = '<p>Fetching latest news...</p>';
+
+            // We search for the exact team name AND "NBA" to filter out unrelated news
+            const query = `"${team}" NBA`;
+            const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=9&apikey=${API_KEY}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                container.innerHTML = ''; // Clear loading text
+
+                // Check if API threw an error (like hitting the daily limit)
+                if (data.errors) {
+                    container.innerHTML = `<p style="color:red;">Error: ${data.errors[0]}</p>`;
+                    return;
+                }
+
+                // Check if we have articles
+                if (data.articles && data.articles.length > 0) {
+                    data.articles.forEach(article => {
+                        const date = new Date(article.publishedAt).toLocaleDateString();
+                        
+                        // Create HTML for each news card
+                        const card = document.createElement('div');
+                        card.className = 'card';
+                        card.innerHTML = `
+                            <img src="${article.image}" alt="News Image" onerror="this.src='https://via.placeholder.com/300x180?text=No+Image'">
+                            <div class="card-content">
+                                <h3><a href="${article.url}" target="_blank">${article.title}</a></h3>
+                                <p>${article.description}</p>
+                                <div class="date">Published: ${date}</div>
+                            </div>
+                        `;
+                        container.appendChild(card);
+                    });
+                } else {
+                    container.innerHTML = '<p>No news found for this team right now.</p>';
+                }
+
+            } catch (error) {
+                console.error("Error fetching news:", error);
+                container.innerHTML = '<p style="color:red;">Something went wrong. Please try again later.</p>';
+            }
+        }
+    </script>
+</body>
+</html>
