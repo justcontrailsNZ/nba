@@ -697,8 +697,8 @@
 
                     if (hStats && aStats) {
                         const estGamePace = (hStats.estPace + aStats.estPace) / 2;
-                        let homeRawPts = ((hStats.offRtg + aStats.defRtg) / 2) * (estGamePace / 100) + 3.0 + ((hStats.formWeight - 0.
-                          5) * 5);
+                        let homeRawPts = ((hStats.offRtg + aStats.defRtg) / 2) * (estGamePace / 100) + 3.0 + ((hStats.formWeight - 0.5) * 5);
+                          
                         let awayRawPts = ((aStats.offRtg + hStats.defRtg) / 2) * (estGamePace / 100) + ((aStats.formWeight - 0.5) * 5);
                         let totalExp = homeRawPts + awayRawPts;
                         let homeProb = Math.round((homeRawPts / totalExp) * 100);
