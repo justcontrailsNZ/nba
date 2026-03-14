@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NBA Team News</title>
+    <title>NBA Team News & Stats</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -11,8 +11,11 @@
             color: #333;
             text-align: center;
             padding: 20px;
+            margin: 0;
         }
-        h1 { color: #1d428a; } /* NBA Blue */
+        h1 { color: #1d428a; margin-bottom: 5px; } /* NBA Blue */
+        .subtitle { color: #555; margin-bottom: 25px; font-size: 14px; }
+        
         .controls { margin-bottom: 30px; }
         select, button {
             padding: 10px;
@@ -27,17 +30,83 @@
             cursor: pointer;
             border: none;
             font-weight: bold;
+            transition: 0.2s;
         }
         button:hover { background-color: #a00c24; }
         
-        #news-container {
+        /* Sections */
+        .section-container {
+            max-width: 1200px;
+            margin: 0 auto 40px auto;
+            text-align: left;
+        }
+        .section-title {
+            font-size: 22px;
+            color: #1d428a;
+            border-bottom: 2px solid #c8102e;
+            padding-bottom: 8px;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+
+        /* Games Grid */
+        .grid {
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
             gap: 20px;
-            max-width: 1200px;
-            margin: 0 auto;
         }
+        
+        /* Game Card Styles */
+        .game-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            width: 340px;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+        .game-header {
+            text-align: center;
+            font-size: 14px;
+            color: #777;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        .team-score {
+            display: flex;
+            justify-content: space-between;
+            font-size: 18px;
+            margin: 5px 0;
+        }
+        .winner { font-weight: bold; color: #1d428a; }
+        .loser { color: #666; }
+        
+        .performers-box {
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 15px;
+        }
+        .team-perf-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: #333;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        .performer-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            font-size: 13px;
+            color: #555;
+        }
+        .performer-list li { margin-bottom: 3px; }
+
+        /* News Card Styles */
         .card {
             background: white;
             border-radius: 8px;
@@ -50,93 +119,199 @@
             flex-direction: column;
         }
         .card:hover { transform: translateY(-5px); }
-        .card img {
-            width: 100%;
-            height: 180px;
-            object-fit: cover;
-            background-color: #eaeaea;
-        }
+        .card img { width: 100%; height: 180px; object-fit: cover; background-color: #eaeaea; }
         .card-content { padding: 15px; display: flex; flex-direction: column; flex-grow: 1; }
-        .card-content h3 {
-            font-size: 18px;
-            margin-top: 0;
-            line-height: 1.3;
-        }
-        .card-content a {
-            text-decoration: none;
-            color: #1d428a;
-        }
+        .card-content h3 { font-size: 18px; margin-top: 0; line-height: 1.3; }
+        .card-content a { text-decoration: none; color: #1d428a; }
         .card-content a:hover { text-decoration: underline; }
-        .card-content p {
-            font-size: 14px;
-            color: #555;
-            line-height: 1.5;
-            flex-grow: 1;
-        }
-        .date {
-            font-size: 12px;
-            color: #999;
-            margin-top: 10px;
-        }
+        .card-content p { font-size: 14px; color: #555; line-height: 1.5; flex-grow: 1; }
+        .date { font-size: 12px; color: #999; margin-top: 10px; }
+
+        .loading { text-align: center; color: #666; width: 100%; font-style: italic; }
     </style>
 </head>
 <body>
 
-    <h1>🏀 NBA Team News Tracker</h1>
+    <h1>🏀 NBA Team Hub</h1>
+    <div class="subtitle">Latest News, Match Results & Top Player Performances</div>
     
     <div class="controls">
+        <!-- The 'data-id' matches the specific team ID required by the ESPN API -->
         <select id="team-select">
-            <option value="Atlanta Hawks">Atlanta Hawks</option>
-            <option value="Boston Celtics">Boston Celtics</option>
-            <option value="Brooklyn Nets">Brooklyn Nets</option>
-            <option value="Charlotte Hornets">Charlotte Hornets</option>
-            <option value="Chicago Bulls">Chicago Bulls</option>
-            <option value="Cleveland Cavaliers">Cleveland Cavaliers</option>
-            <option value="Dallas Mavericks">Dallas Mavericks</option>
-            <option value="Denver Nuggets">Denver Nuggets</option>
-            <option value="Detroit Pistons">Detroit Pistons</option>
-            <option value="Golden State Warriors">Golden State Warriors</option>
-            <option value="Houston Rockets">Houston Rockets</option>
-            <option value="Indiana Pacers">Indiana Pacers</option>
-            <option value="LA Clippers">LA Clippers</option>
-            <option value="Los Angeles Lakers">Los Angeles Lakers</option>
-            <option value="Memphis Grizzlies">Memphis Grizzlies</option>
-            <option value="Miami Heat">Miami Heat</option>
-            <option value="Milwaukee Bucks">Milwaukee Bucks</option>
-            <option value="Minnesota Timberwolves">Minnesota Timberwolves</option>
-            <option value="New Orleans Pelicans">New Orleans Pelicans</option>
-            <option value="New York Knicks">New York Knicks</option>
-            <option value="Oklahoma City Thunder">Oklahoma City Thunder</option>
-            <option value="Orlando Magic">Orlando Magic</option>
-            <option value="Philadelphia 76ers">Philadelphia 76ers</option>
-            <option value="Phoenix Suns">Phoenix Suns</option>
-            <option value="Portland Trail Blazers">Portland Trail Blazers</option>
-            <option value="Sacramento Kings">Sacramento Kings</option>
-            <option value="San Antonio Spurs">San Antonio Spurs</option>
-            <option value="Toronto Raptors">Toronto Raptors</option>
-            <option value="Utah Jazz">Utah Jazz</option>
-            <option value="Washington Wizards">Washington Wizards</option>
+            <option value="Atlanta Hawks" data-id="1">Atlanta Hawks</option>
+            <option value="Boston Celtics" data-id="2">Boston Celtics</option>
+            <option value="Brooklyn Nets" data-id="17">Brooklyn Nets</option>
+            <option value="Charlotte Hornets" data-id="30">Charlotte Hornets</option>
+            <option value="Chicago Bulls" data-id="4">Chicago Bulls</option>
+            <option value="Cleveland Cavaliers" data-id="5">Cleveland Cavaliers</option>
+            <option value="Dallas Mavericks" data-id="6">Dallas Mavericks</option>
+            <option value="Denver Nuggets" data-id="7">Denver Nuggets</option>
+            <option value="Detroit Pistons" data-id="8">Detroit Pistons</option>
+            <option value="Golden State Warriors" data-id="9">Golden State Warriors</option>
+            <option value="Houston Rockets" data-id="10">Houston Rockets</option>
+            <option value="Indiana Pacers" data-id="11">Indiana Pacers</option>
+            <option value="LA Clippers" data-id="12">LA Clippers</option>
+            <option value="Los Angeles Lakers" data-id="13">Los Angeles Lakers</option>
+            <option value="Memphis Grizzlies" data-id="29">Memphis Grizzlies</option>
+            <option value="Miami Heat" data-id="14">Miami Heat</option>
+            <option value="Milwaukee Bucks" data-id="15">Milwaukee Bucks</option>
+            <option value="Minnesota Timberwolves" data-id="16">Minnesota Timberwolves</option>
+            <option value="New Orleans Pelicans" data-id="3">New Orleans Pelicans</option>
+            <option value="New York Knicks" data-id="18">New York Knicks</option>
+            <option value="Oklahoma City Thunder" data-id="25">Oklahoma City Thunder</option>
+            <option value="Orlando Magic" data-id="19">Orlando Magic</option>
+            <option value="Philadelphia 76ers" data-id="20">Philadelphia 76ers</option>
+            <option value="Phoenix Suns" data-id="21">Phoenix Suns</option>
+            <option value="Portland Trail Blazers" data-id="22">Portland Trail Blazers</option>
+            <option value="Sacramento Kings" data-id="23">Sacramento Kings</option>
+            <option value="San Antonio Spurs" data-id="24">San Antonio Spurs</option>
+            <option value="Toronto Raptors" data-id="28">Toronto Raptors</option>
+            <option value="Utah Jazz" data-id="26">Utah Jazz</option>
+            <option value="Washington Wizards" data-id="27">Washington Wizards</option>
         </select>
-        <button onclick="fetchNews()">Get Latest News</button>
+        <button onclick="fetchAllData()">Get Team Info</button>
     </div>
 
-    <div id="news-container">
-        <p>Select a team and click "Get Latest News" to begin.</p>
+    <!-- Section for Last 5 Games -->
+    <div class="section-container" id="games-section" style="display:none;">
+        <div class="section-title">Last 5 Matches</div>
+        <div class="grid" id="games-container"></div>
+    </div>
+
+    <!-- Section for Latest News -->
+    <div class="section-container" id="news-section" style="display:none;">
+        <div class="section-title">Latest Team News</div>
+        <div class="grid" id="news-container"></div>
     </div>
 
     <script>
-        const API_KEY = 'pub_dce2909d7f99428199a11eb8be5c290e';
+        const NEWS_API_KEY = 'pub_dce2909d7f99428199a11eb8be5c290e';
 
-        async function fetchNews() {
-            const team = document.getElementById('team-select').value;
+        // Main function that triggers both API calls at the same time
+        function fetchAllData() {
+            const selectEl = document.getElementById('team-select');
+            const teamName = selectEl.value;
+            const espnId = selectEl.options[selectEl.selectedIndex].getAttribute('data-id');
+
+            // Show sections
+            document.getElementById('games-section').style.display = 'block';
+            document.getElementById('news-section').style.display = 'block';
+
+            fetchGames(espnId);
+            fetchNews(teamName);
+        }
+
+        // --- FETCH LAST 5 GAMES & PLAYER STATS (via ESPN API) ---
+        async function fetchGames(espnId) {
+            const container = document.getElementById('games-container');
+            container.innerHTML = '<div class="loading">Loading match history and crunching player stats...</div>';
+
+            try {
+                // 1. Get the team's full schedule
+                const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule`);
+                const scheduleData = await scheduleRes.json();
+
+                // 2. Filter out games that haven't been played yet, then grab the last 5
+                const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
+                const last5Games = completedGames.slice(-5).reverse(); // Reverse to show newest first
+
+                container.innerHTML = '';
+
+                if (last5Games.length === 0) {
+                    container.innerHTML = '<p>No completed games found for this team yet.</p>';
+                    return;
+                }
+
+                // 3. Loop through the 5 games to get the box scores
+                for (let game of last5Games) {
+                    const matchId = game.id;
+                    const dateObj = new Date(game.date);
+                    const dateStr = dateObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+                    
+                    const comp = game.competitions[0];
+                    const homeTeam = comp.competitors.find(c => c.homeAway === 'home');
+                    const awayTeam = comp.competitors.find(c => c.homeAway === 'away');
+
+                    // Determine formatting for winners/losers
+                    const homeClass = homeTeam.winner ? 'winner' : 'loser';
+                    const awayClass = awayTeam.winner ? 'winner' : 'loser';
+
+                    // Fetch the detailed Box Score for this specific match
+                    let performersHTML = '<div class="performers-box"><div style="font-size:12px; color:#888; text-align:center;">Fetching player stats...</div></div>';
+                    
+                    try {
+                        const boxRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${matchId}`);
+                        const boxData = await boxRes.json();
+                        
+                        performersHTML = '<div class="performers-box">';
+                        
+                        // Parse stats for both teams
+                        if (boxData.boxscore && boxData.boxscore.players) {
+                            boxData.boxscore.players.forEach(teamData => {
+                                const tName = teamData.team.displayName;
+                                const statsData = teamData.statistics[0];
+                                
+                                if(statsData) {
+                                    const labels = statsData.labels;
+                                    const ptsIdx = labels.indexOf('PTS');
+                                    const rebIdx = labels.indexOf('REB');
+                                    const astIdx = labels.indexOf('AST');
+
+                                    // Filter out players who didn't play, then sort by Points
+                                    const activePlayers = statsData.athletes.filter(a => !a.didNotPlay);
+                                    activePlayers.sort((a, b) => parseInt(b.stats[ptsIdx]) - parseInt(a.stats[ptsIdx]));
+                                    
+                                    // Grab top 3
+                                    const top3 = activePlayers.slice(0, 3);
+
+                                    performersHTML += `<div class="team-perf-title">${tName} Leaders</div><ul class="performer-list">`;
+                                    top3.forEach(p => {
+                                        performersHTML += `<li><b>${p.athlete.shortName}</b>: ${p.stats[ptsIdx]} PTS, ${p.stats[rebIdx]} REB, ${p.stats[astIdx]} AST</li>`;
+                                    });
+                                    performersHTML += `</ul>`;
+                                }
+                            });
+                        } else {
+                            performersHTML += `<p style="font-size:12px;">Stats not available.</p>`;
+                        }
+                        performersHTML += '</div>';
+                    } catch (e) {
+                        performersHTML = '<div class="performers-box"><p style="font-size:12px; color:red;">Error loading stats</p></div>';
+                    }
+
+                    // Build the game card HTML
+                    const card = document.createElement('div');
+                    card.className = 'game-card';
+                    card.innerHTML = `
+                        <div class="game-header">${dateStr} • ${comp.status.type.detail}</div>
+                        
+                        <div class="team-score ${awayClass}">
+                            <span>${awayTeam.team.abbreviation} ${awayTeam.team.shortDisplayName}</span>
+                            <span>${awayTeam.score.displayValue}</span>
+                        </div>
+                        <div class="team-score ${homeClass}">
+                            <span>${homeTeam.team.abbreviation} ${homeTeam.team.shortDisplayName} (H)</span>
+                            <span>${homeTeam.score.displayValue}</span>
+                        </div>
+                        
+                        ${performersHTML}
+                    `;
+                    container.appendChild(card);
+                }
+
+            } catch (error) {
+                console.error(error);
+                container.innerHTML = '<div class="loading" style="color:red;">Failed to load game history.</div>';
+            }
+        }
+
+        // --- FETCH LATEST NEWS (via NewsData.io API) ---
+        async function fetchNews(teamName) {
             const container = document.getElementById('news-container');
-            
-            container.innerHTML = '<p>Fetching latest news...</p>';
+            container.innerHTML = '<div class="loading">Searching for the latest news articles...</div>';
 
-            // FIX 1: Format query with ' AND ' (e.g., 'Boston AND Celtics') to force accurate API search
-            const query = team.split(' ').join(' AND ');
-            
-            const url = `https://newsdata.io/api/1/news?apikey=${API_KEY}&q=${encodeURIComponent(query)}&category=sports&language=en`;
+            const query = teamName.split(' ').join(' AND ');
+            const url = `https://newsdata.io/api/1/news?apikey=${NEWS_API_KEY}&q=${encodeURIComponent(query)}&category=sports&language=en`;
 
             try {
                 const response = await fetch(url);
@@ -151,26 +326,23 @@
 
                 if (data.results && data.results.length > 0) {
                     
-                    // FIX 2: Strict Frontend Filter
-                    // Get the team's unique mascot name (e.g., 'Lakers' from 'Los Angeles Lakers')
-                    const teamMascot = team.split(' ').pop().toLowerCase();
+                    const teamMascot = teamName.split(' ').pop().toLowerCase();
 
-                    // Filter articles to ONLY keep ones where the mascot is actually in the title or description
+                    // Strict filter to ensure the article actually mentions the team
                     const relevantArticles = data.results.filter(article => {
                         const titleText = (article.title || "").toLowerCase();
                         const descText = (article.description || "").toLowerCase();
                         return titleText.includes(teamMascot) || descText.includes(teamMascot);
                     });
 
-                    // Check if we still have articles after filtering out the irrelevant ones
                     if (relevantArticles.length > 0) {
                         relevantArticles.forEach(article => {
                             const date = new Date(article.pubDate).toLocaleDateString();
-                            
                             const imageUrl = article.image_url ? article.image_url : 'https://via.placeholder.com/300x180?text=No+Image';
+                            
                             let description = "Click the link to read the full story.";
                             if (article.description) {
-                                description = article.description.length > 150 ? article.description.substring(0, 150) + "..." : article.description;
+                                description = article.description.length > 130 ? article.description.substring(0, 130) + "..." : article.description;
                             }
 
                             const card = document.createElement('div');
@@ -186,7 +358,7 @@
                             container.appendChild(card);
                         });
                     } else {
-                        container.innerHTML = '<p>No specific news found for this team right now. Try a different team!</p>';
+                        container.innerHTML = '<p>No specific news found for this team right now.</p>';
                     }
                 } else {
                     container.innerHTML = '<p>No news found for this team right now.</p>';
@@ -194,7 +366,7 @@
 
             } catch (error) {
                 console.error("Error fetching news:", error);
-                container.innerHTML = '<p style="color:red;">Something went wrong. Please check your console or try again later.</p>';
+                container.innerHTML = '<p style="color:red;">Something went wrong. Please check your console.</p>';
             }
         }
     </script>
