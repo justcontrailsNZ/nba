@@ -59,28 +59,31 @@
         .pred-text { font-size: 13px; color: #222; margin-bottom: 4px; }
         .pred-subtext { font-size: 10px; color: #777; font-style: italic; }
 
-        /* Left-Side Daily Slate Tracker CSS */
+        /* Left-Side Daily Slate Tracker CSS - Updated Light Gray & Fit-Content */
         .syndicate-box { 
-            background: #0b132b; border-radius: 8px; padding: 15px; 
-            text-align: left; border: 1px solid #1c2541; font-family: 'Courier New', Courier, monospace; 
-            box-shadow: inset 0 0 15px rgba(0,0,0,0.6); display: flex; flex-direction: column; height: 100%;
+            background: #f8f9fa; border-radius: 8px; padding: 15px; 
+            text-align: left; border: 1px solid #d1d9e6; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; 
+            height: fit-content; max-height: 85vh;
         }
-        .slate-header { display: flex; justify-content: space-between; align-items: center; background: #1c2541; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; color: #48cae4; font-weight: bold; font-size: 13px;}
-        .slate-header button { background: #48cae4; color: #0b132b; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight:bold; transition: 0.2s;}
-        .slate-header button:hover { background: #00f5d4; }
-        .slate-content { overflow-y: auto; flex-grow: 1; padding-right: 5px; max-height: 700px; }
+        .slate-header { display: flex; justify-content: space-between; align-items: center; background: #1d428a; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; color: #fff; font-weight: bold; font-size: 13px;}
+        .slate-header button { background: #fff; color: #1d428a; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight:bold; transition: 0.2s;}
+        .slate-header button:hover { background: #eef2f5; }
+        .slate-content { overflow-y: auto; flex-grow: 1; padding-right: 5px; }
         .slate-content::-webkit-scrollbar { width: 6px; }
-        .slate-content::-webkit-scrollbar-track { background: #0b132b; }
-        .slate-content::-webkit-scrollbar-thumb { background: #48cae4; border-radius: 4px; }
+        .slate-content::-webkit-scrollbar-track { background: #f0f2f5; }
+        .slate-content::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
 
-        .daily-slate-item { border-bottom: 1px dashed #1c2541; padding: 12px 0; }
+        .daily-slate-item { border-bottom: 1px dashed #ccc; padding: 12px 0; }
         .daily-slate-item:last-child { border-bottom: none; }
         .daily-slate-item:first-child { padding-top: 0; }
-        .metric-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px; color: #8d99ae; align-items: center;}
+        .metric-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; color: #555; align-items: center;}
         .metric-row:last-child { margin-bottom: 0; }
-        .metric-val { font-weight: bold; color: #00f5d4; }
-        .ev-badge { display: inline-block; background-color: #555; color: white; padding: 2px 5px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-left: 5px; }
-        .ev-badge.positive { background-color: #28a745; box-shadow: 0 0 5px rgba(40, 167, 69, 0.4); color: #fff; }
+        .metric-val { font-weight: bold; color: #1d428a; }
+        .slate-team-name { font-weight: bold; font-size: 13px; color: #333; }
+        
+        .ev-badge { display: inline-block; background-color: #777; color: white; padding: 2px 5px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-left: 5px; }
+        .ev-badge.positive { background-color: #28a745; color: #fff; }
         .ev-badge.neutral { background-color: #ffc107; color: #000; }
         
         /* Compact Performers */
@@ -166,14 +169,14 @@
         <!-- LEFT COLUMN: Syndicate Daily Slate Explorer -->
         <div class="slate-col">
             <div class="syndicate-box">
-                <div style="font-size: 13px; font-weight: bold; color: #48cae4; text-align: center; margin-bottom: 8px; text-transform: uppercase;">⚗️ Syndicate Slate Explorer</div>
+                <div style="font-size: 13px; font-weight: bold; color: #1d428a; text-align: center; margin-bottom: 8px; text-transform: uppercase;">⚗️ Syndicate Slate Explorer</div>
                 <div class="slate-header">
                     <button onclick="changeSlateDate(-1)">&#9664;</button>
                     <span id="slate-date-display">MM/DD/YYYY</span>
                     <button onclick="changeSlateDate(1)">&#9654;</button>
                 </div>
                 <div class="slate-content" id="slate-data-container">
-                    <div class="loading" style="color:#8d99ae;">Waiting for system init...</div>
+                    <div class="loading">Waiting for system init...</div>
                 </div>
             </div>
         </div>
@@ -190,7 +193,7 @@
                     </div>
                 </div>
 
-                <!-- Next Game + H2H Graph Instead of Injury Box -->
+                <!-- Next Game + H2H Graph -->
                 <div class="flex-row">
                     <div class="flex-item" id="next-game-container"></div>
                     <div class="flex-item panel-box">
@@ -219,12 +222,14 @@
             
             <div class="widget-box">
                 <h2>🔥 Season Leaders</h2>
+                <!-- Added 3PM per Game -->
                 <select id="leader-stat-select" class="leader-dropdown" onchange="fetchLeaders()">
                     <option value="pointsPerGame">Points (PPG)</option>
                     <option value="assistsPerGame">Assists (APG)</option>
                     <option value="reboundsPerGame">Rebounds (RPG)</option>
                     <option value="blocksPerGame">Blocks (BPG)</option>
                     <option value="stealsPerGame">Steals (SPG)</option>
+                    <option value="threePointFieldGoalsMadePerGame">3 Pointers Made (3PM)</option>
                 </select>
                 <div id="leaders-container"><div class="loading">Loading Leaders...</div></div>
             </div>
@@ -238,9 +243,9 @@
         window.teamAnalyticsStore = {}; 
         
         let currentSlateDate = new Date();
-        currentSlateDate.setHours(currentSlateDate.getHours() - 5); // Shift -5 hours to handle late UTC matches properly for US dates
+        currentSlateDate.setHours(currentSlateDate.getHours() - 5); 
 
-        // Updated Plugin: Differentiates colors and vertical alignment to prevent overlap
+        // Offset colors and vertical alignment to prevent overlap
         const winLossPlugin = {
             id: 'winLossPlugin',
             afterDatasetsDraw(chart) {
@@ -346,7 +351,7 @@
         async function loadDailySlate(offset = 0) {
             currentSlateDate.setDate(currentSlateDate.getDate() + offset);
             const container = document.getElementById('slate-data-container');
-            container.innerHTML = '<div class="loading" style="color:#8d99ae;">Loading slate models...</div>';
+            container.innerHTML = '<div class="loading">Loading slate models...</div>';
 
             const yyyy = currentSlateDate.getFullYear();
             const mm = String(currentSlateDate.getMonth() + 1).padStart(2, '0');
@@ -382,6 +387,11 @@
                         let aRaw = ((sA.offRtg + sH.defRtg)/2)*(ep/100) + ((sA.formWeight-0.5)*5);
                         let tExp = hRaw + aRaw;
                         
+                        // NEW: Predicted Winner & Spread calculations
+                        let predictedWinner = hRaw > aRaw ? h.team.abbreviation : a.team.abbreviation;
+                        let spreadDiff = Math.abs(hRaw - aRaw).toFixed(1);
+                        let projSpread = `${predictedWinner} -${spreadDiff}`;
+                        
                         let bookLine = comp.odds?.[0]?.overUnder || 0;
                         let bookLineStr = bookLine > 0 ? bookLine : 'N/A';
 
@@ -400,7 +410,7 @@
                                     let wonPick = (isOverPick && overHit) || (!isOverPick && underHit);
                                     
                                     if (actualTotal == bookLine) {
-                                        resultHtml = `<span style="color:#ffc107; font-weight:bold;">PUSH (Act: ${actualTotal})</span>`;
+                                        resultHtml = `<span style="color:#d48806; font-weight:bold;">PUSH (Act: ${actualTotal})</span>`;
                                     } else if (wonPick) {
                                         resultHtml = `<span style="color:#28a745; font-weight:bold;">✅ HIT (Act: ${actualTotal})</span>`;
                                     } else {
@@ -413,16 +423,17 @@
                             }
                         }
 
-                        let scoreDisplay = isFinal ? `<span style="color:#fff; background:#1d428a; padding:2px 5px; border-radius:3px; font-size:11px;">${aScore} - ${hScore}</span>` : `<span style="font-size:10px; color:#8d99ae;">${comp.status.type.shortDetail}</span>`;
+                        let scoreDisplay = isFinal ? `<span style="color:#fff; background:#1d428a; padding:2px 5px; border-radius:3px; font-size:11px;">${aScore} - ${hScore}</span>` : `<span style="font-size:10px; color:#888;">${comp.status.type.shortDetail}</span>`;
 
                         html += `
                             <div class="daily-slate-item">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                    <div style="font-weight:bold; font-size:12px; color:#fff;">${a.team.abbreviation} @ ${h.team.abbreviation}</div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <div class="slate-team-name">${a.team.abbreviation} @ ${h.team.abbreviation}</div>
                                     ${scoreDisplay}
                                 </div>
-                                <div class="metric-row"><span>Proj: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evHtml}</span></div>
-                                ${isFinal && resultHtml ? `<div class="metric-row" style="margin-top:6px; padding-top:6px; border-top:1px dashed #1c2541;"><span>Result:</span> <span>${resultHtml}</span></div>` : ''}
+                                <div class="metric-row"><span>Proj Spread:</span> <span class="metric-val">${projSpread}</span></div>
+                                <div class="metric-row"><span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evHtml}</span></div>
+                                ${isFinal && resultHtml ? `<div class="metric-row" style="margin-top:6px; padding-top:6px; border-top:1px dashed #ccc;"><span>Result:</span> <span>${resultHtml}</span></div>` : ''}
                             </div>
                         `;
                     }
@@ -448,7 +459,13 @@
                 if (!category || !category.leaders) throw new Error("Category not found");
 
                 const topLeaders = category.leaders.slice(0, 15);
-                const statSuffix = category.abbreviation || statType.replace('PerGame', '').toUpperCase().substring(0,3);
+                
+                // Logic for 3PM abbreviation cleanly
+                let statSuffix = category.abbreviation;
+                if (!statSuffix) {
+                    if(statType === 'threePointFieldGoalsMadePerGame') statSuffix = '3PM';
+                    else statSuffix = statType.replace('PerGame', '').toUpperCase().substring(0,3);
+                }
 
                 const leadersData = await Promise.all(topLeaders.map(async (leader) => {
                     try {
@@ -555,7 +572,7 @@
 
                 drawChart('perfChart', perfLabels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
 
-                // --- NEW H2H LOGIC ---
+                // --- H2H LOGIC ---
                 let h2hGames = [];
                 if (oppId) {
                     // Filter current season completed games for the opponent
@@ -698,7 +715,6 @@
                     if (hStats && aStats) {
                         const estGamePace = (hStats.estPace + aStats.estPace) / 2;
                         let homeRawPts = ((hStats.offRtg + aStats.defRtg) / 2) * (estGamePace / 100) + 3.0 + ((hStats.formWeight - 0.5) * 5);
-                          
                         let awayRawPts = ((aStats.offRtg + hStats.defRtg) / 2) * (estGamePace / 100) + ((aStats.formWeight - 0.5) * 5);
                         let totalExp = homeRawPts + awayRawPts;
                         let homeProb = Math.round((homeRawPts / totalExp) * 100);
@@ -737,7 +753,7 @@
                             activePlayers.sort((a, b) => parseInt((b.stats && b.stats[ptsIdx]) || 0) - parseInt((a.stats && a.stats[ptsIdx]) || 0));
                             
                             activePlayers.slice(0, 3).forEach(p => {
-                                performersHTML += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
+                                p, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
                             });
                         }
                         performersHTML += `</ul></div>`;
@@ -788,5 +804,6 @@
         }
     </script>
 </body>
-</html>                                                                                     
-                                                                                                              
+</html>erformersHTML += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS
+
+                                
