@@ -12,7 +12,7 @@
         
         /* 3-Column Layout */
         .layout-container { display: flex; flex-wrap: wrap; gap: 20px; max-width: 1600px; margin: 0 auto; }
-        .slate-col { flex: 2.5; min-width: 300px; display: flex; flex-direction: column; gap: 20px; }
+        .slate-col { flex: 2.5; min-width: 320px; display: flex; flex-direction: column; gap: 20px; }
         .center-col { flex: 5.5; min-width: 550px; }
         .right-col { flex: 2.5; min-width: 300px; display: flex; flex-direction: column; gap: 20px; }
 
@@ -200,8 +200,14 @@
                     </div>
                 </div>
                 
-                <div class="section-title">Last 5 Matches</div>
+                <!-- 3 vs 3 Split Grids -->
+                <div class="section-title">Last 3 Matches: <span id="main-team-title">Team</span></div>
                 <div class="past-games-grid" id="past-games-container"></div>
+
+                <div id="opp-past-matches-section" style="display:none;">
+                    <div class="section-title">Last 3 Matches: <span id="opp-team-title">Opponent</span></div>
+                    <div class="past-games-grid" id="opp-past-games-container"></div>
+                </div>
 
                 <div class="section-title">Latest Team News</div>
                 <div class="news-grid" id="news-container"></div>
@@ -360,7 +366,11 @@
                 }
 
                 let html = '';
+                // Metrics for Totals
                 let totalHits = 0; let totalMisses = 0; let totalPushes = 0; let totalPasses = 0;
+                // Metrics for Spreads
+                let spreadHits = 0; let spreadMisses = 0; let spreadPushes = 0; let spreadPasses = 0;
+                
                 let anyFinal = false;
 
                 data.events.forEach(evt => {
@@ -373,6 +383,7 @@
                     const hScore = parseInt(h.score || 0);
                     const aScore = parseInt(a.score || 0);
                     const actualTotal = hScore + aScore;
+                    const actualHomeMargin = hScore - aScore;
 
                     const sH = window.teamAnalyticsStore[h.team.id];
                     const sA = window.teamAnalyticsStore[a.team.id];
@@ -387,43 +398,86 @@
                         let spreadDiff = Math.abs(hRaw - aRaw).toFixed(1);
                         let projSpread = `${predictedWinner} -${spreadDiff}`;
                         
+                        // Parse Lines
                         let bookLine = comp.odds?.[0]?.overUnder || 0;
                         let bookLineStr = bookLine > 0 ? bookLine : 'N/A';
-                        
-                        // NEW: Extracting the Book's Spread
                         let bookSpreadStr = comp.odds?.[0]?.details || 'N/A';
 
-                        let evHtml = "";
-                        let resultHtml = "";
-
+                        // TOTALS LOGIC
+                        let evTotalHtml = "";
+                        let totalResultHtml = "";
                         if(bookLine > 0) {
                             let diff = Math.abs(tExp - bookLine);
                             let isOverPick = tExp > bookLine;
                             
-                            if(diff > 4) {
-                                evHtml = `<span class="ev-badge positive">${isOverPick ? '+EV OVER' : '+EV UNDER'}</span>`;
+                            if(diff > 4.0) {
+                                evTotalHtml = `<span class="ev-badge positive">${isOverPick ? '+EV OVER' : '+EV UNDER'}</span>`;
                                 if (isFinal) {
                                     let overHit = actualTotal > bookLine;
                                     let underHit = actualTotal < bookLine;
                                     let wonPick = (isOverPick && overHit) || (!isOverPick && underHit);
                                     
-                                    if (actualTotal == bookLine) {
-                                        resultHtml = `<div><span style="color:#d48806; font-weight:bold;">⚖️ PUSH</span> <span style="font-size:10px; color:#666;">(Act: <b>${actualTotal}</b> vs Book: ${bookLine})</span></div>`;
+                                    if (actualTotal === bookLine) {
+                                        totalResultHtml = `<span style="color:#d48806; font-weight:bold; font-size:11px;">⚖️ PUSH</span>`;
                                         totalPushes++;
                                     } else if (wonPick) {
-                                        resultHtml = `<div><span style="color:#28a745; font-weight:bold;">✅ HIT</span> <span style="font-size:10px; color:#666;">(Act: <b>${actualTotal}</b> vs Proj: ${tExp.toFixed(1)}, Book: ${bookLine})</span></div>`;
+                                        totalResultHtml = `<span style="color:#28a745; font-weight:bold; font-size:11px;">✅ HIT</span>`;
                                         totalHits++;
                                     } else {
-                                        resultHtml = `<div><span style="color:#c8102e; font-weight:bold;">❌ MISS</span> <span style="font-size:10px; color:#666;">(Act: <b>${actualTotal}</b> vs Proj: ${tExp.toFixed(1)}, Book: ${bookLine})</span></div>`;
+                                        totalResultHtml = `<span style="color:#c8102e; font-weight:bold; font-size:11px;">❌ MISS</span>`;
                                         totalMisses++;
                                     }
                                 }
                             } else {
-                                evHtml = `<span class="ev-badge neutral">PASS</span>`;
+                                evTotalHtml = `<span class="ev-badge neutral">PASS</span>`;
                                 if (isFinal) {
-                                    resultHtml = `<div><span style="color:#888; font-weight:bold;">⏸️ PASSED</span> <span style="font-size:10px; color:#666;">(Act: <b>${actualTotal}</b>)</span></div>`;
+                                    totalResultHtml = `<span style="color:#888; font-weight:bold; font-size:11px;">⏸️ PASS</span>`;
                                     totalPasses++;
                                 }
+                            }
+                        }
+
+                        // SPREADS LOGIC
+                        let evSpreadHtml = "";
+                        let spreadResultHtml = "";
+                        if (bookSpreadStr !== 'N/A') {
+                            let bookHomeMargin = 0;
+                            if (bookSpreadStr.toUpperCase() !== 'EVEN') {
+                                const parts = bookSpreadStr.split(' ');
+                                const fav = parts[0];
+                                const val = parseFloat(parts[1] || 0);
+                                if (fav === h.team.abbreviation) bookHomeMargin = Math.abs(val);
+                                else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
+                            }
+                            
+                            const modelHomeMargin = hRaw - aRaw;
+                            const marginDiff = modelHomeMargin - bookHomeMargin;
+                            let pickSide = null;
+                            
+                            if (marginDiff > 2.5) {
+                                pickSide = 'home';
+                                evSpreadHtml = `<span class="ev-badge positive">+EV ${h.team.abbreviation}</span>`;
+                            } else if (marginDiff < -2.5) {
+                                pickSide = 'away';
+                                evSpreadHtml = `<span class="ev-badge positive">+EV ${a.team.abbreviation}</span>`;
+                            } else {
+                                evSpreadHtml = `<span class="ev-badge neutral">PASS</span>`;
+                                if (isFinal) spreadPasses++;
+                            }
+
+                            if (isFinal && pickSide) {
+                                if (actualHomeMargin === bookHomeMargin) {
+                                    spreadResultHtml = `<span style="color:#d48806; font-weight:bold; font-size:11px;">⚖️ PUSH</span>`;
+                                    spreadPushes++;
+                                } else if ((pickSide === 'home' && actualHomeMargin > bookHomeMargin) || (pickSide === 'away' && actualHomeMargin < bookHomeMargin)) {
+                                    spreadResultHtml = `<span style="color:#28a745; font-weight:bold; font-size:11px;">✅ HIT</span>`;
+                                    spreadHits++;
+                                } else {
+                                    spreadResultHtml = `<span style="color:#c8102e; font-weight:bold; font-size:11px;">❌ MISS</span>`;
+                                    spreadMisses++;
+                                }
+                            } else if (isFinal && !pickSide) {
+                                spreadResultHtml = `<span style="color:#888; font-weight:bold; font-size:11px;">⏸️ PASS</span>`;
                             }
                         }
 
@@ -436,23 +490,37 @@
                                     <div class="slate-team-name">${a.team.abbreviation} @ ${h.team.abbreviation}</div>
                                     ${scoreDisplay}
                                 </div>
-                                <div class="metric-row"><span>Proj Spread: <span class="metric-val">${projSpread}</span></span> <span>Book: ${bookSpreadStr}</span></div>
-                                <div class="metric-row"><span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evHtml}</span></div>
-                                ${isFinal && resultHtml ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed #e1e4e8; text-align:right;">${resultHtml}</div>` : ''}
+                                <div class="metric-row"><span>Proj Spread: <span class="metric-val">${projSpread}</span></span> <span>Book: ${bookSpreadStr} ${evSpreadHtml} ${spreadResultHtml}</span></div>
+                                <div class="metric-row"><span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evTotalHtml} ${totalResultHtml}</span></div>
                             </div>
                         `;
                     }
                 });
 
-                            if (anyFinal && (totalHits > 0 || totalMisses > 0 || totalPushes > 0 || totalPasses > 0)) {
+                // Attach Summary Box if there are completed games
+                if (anyFinal && (totalHits > 0 || totalMisses > 0 || totalPushes > 0 || totalPasses > 0 || spreadHits > 0 || spreadMisses > 0)) {
                     html += `
                         <div style="margin-top:15px; padding:12px; background:#fff; border-radius:6px; border:1px solid #d1d9e6; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                            <div style="font-weight:bold; font-size:12px; color:#1d428a; margin-bottom:8px; text-transform:uppercase;">📊 Daily Model Summary</div>
-                            <div style="display:flex; justify-content:space-around; font-size:13px; font-weight:bold;">
-                                <span style="color:#28a745;">✅ ${totalHits}</span>
-                                <span style="color:#c8102e;">❌ ${totalMisses}</span>
-                                <span style="color:#d48806;">⚖️ ${totalPushes}</span>
-                                <span style="color:#888;">⏸️ ${totalPasses}</span>
+                            <div style="font-weight:bold; font-size:13px; color:#1d428a; margin-bottom:10px; text-transform:uppercase; border-bottom:1px solid #eee; padding-bottom:5px;">📊 Slate Results Summary</div>
+                            
+                            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+                                <b>SPREADS:</b>
+                                <div>
+                                    <span style="color:#28a745; margin-left:8px;">✅ ${spreadHits}</span>
+                                    <span style="color:#c8102e; margin-left:8px;">❌ ${spreadMisses}</span>
+                                    <span style="color:#d48806; margin-left:8px;">⚖️ ${spreadPushes}</span>
+                                    <span style="color:#888; margin-left:8px;">⏸️ ${spreadPasses}</span>
+                                </div>
+                            </div>
+
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <b>TOTALS:</b>
+                                <div>
+                                    <span style="color:#28a745; margin-left:8px;">✅ ${totalHits}</span>
+                                    <span style="color:#c8102e; margin-left:8px;">❌ ${totalMisses}</span>
+                                    <span style="color:#d48806; margin-left:8px;">⚖️ ${totalPushes}</span>
+                                    <span style="color:#888; margin-left:8px;">⏸️ ${totalPasses}</span>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -511,6 +579,9 @@
             document.getElementById('team-placeholder').style.display = 'none';
             document.getElementById('team-content').style.display = 'block';
 
+            // Set Title Context dynamically for split
+            document.getElementById('main-team-title').innerText = teamAbbrev;
+
             fetchGamesAndDrawCharts(espnId, teamAbbrev);
             fetchNews(teamName);
         }
@@ -526,6 +597,8 @@
         async function fetchGamesAndDrawCharts(espnId, teamAbbrev) {
             const nextContainer = document.getElementById('next-game-container');
             const pastContainer = document.getElementById('past-games-container');
+            const oppSection = document.getElementById('opp-past-matches-section');
+            const oppPastContainer = document.getElementById('opp-past-games-container');
             const hotContainer = document.getElementById('hot-indicator-container');
             const h2hContainer = document.getElementById('h2h-container');
             
@@ -533,6 +606,7 @@
             pastContainer.innerHTML = '<div class="loading">Loading match history...</div>';
             hotContainer.innerHTML = '<div class="loading">Analyzing momentum...</div>';
             h2hContainer.innerHTML = '<div class="loading">Loading H2H history...</div>';
+            oppSection.style.display = 'none';
 
             try {
                 const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule`);
@@ -541,7 +615,10 @@
                 const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
                 const upcomingGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === false);
 
+                // Chart needs 5 games, but Card Grid needs 3
                 const last5Games = completedGames.slice(-5);
+                const last3GamesForCards = completedGames.slice(-3).reverse();
+                
                 const nextGame = upcomingGames.length > 0 ? upcomingGames[0] : null;
 
                 let winCount = 0; let totalPts = 0; let validGames = 0;
@@ -562,6 +639,7 @@
 
                 let oppId = null; let oppAbbrev = "Opponent"; let oppDataPts = []; let oppWL = [];
                 let oppWinCount = 0; let oppTotalPts = 0; let oppValidGames = 0;
+                let oppCompleted = [];
 
                 if (nextGame) {
                     const comp = nextGame.competitions[0];
@@ -569,12 +647,14 @@
                     if (oppTeam) { oppId = oppTeam.team.id; oppAbbrev = oppTeam.team.abbreviation || "OPP"; }
                 }
 
-                if (oppId) {
+                                if (oppId) {
                     try {
                         const oppRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${oppId}/schedule`);
                         const oppData = await oppRes.json();
-                        const oppCompleted = oppData.events.filter(e => e.competitions[0].status.type.completed === true).slice(-5);
-                        oppCompleted.forEach(game => {
+                        oppCompleted = oppData.events.filter(e => e.competitions[0].status.type.completed === true);
+                        const oppLast5 = oppCompleted.slice(-5);
+                        
+                        oppLast5.forEach(game => {
                             const targetOpp = game.competitions[0].competitors.find(c => c.team.id === oppId);
                             if (targetOpp && targetOpp.score) {
                                 const pts = parseInt(targetOpp.score.value);
@@ -648,12 +728,22 @@
                 if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true); } 
                 else { nextContainer.innerHTML = '<div class="panel-box"><p style="text-align:center; color:#777;">No upcoming games scheduled.</p></div>'; }
 
-                const reversedPast = [...last5Games].reverse();
-                if (reversedPast.length === 0) { pastContainer.innerHTML = '<p>No completed games found.</p>'; } 
+                // MAIN TEAM: Last 3 Games
+                if (last3GamesForCards.length === 0) { pastContainer.innerHTML = '<p>No completed games found.</p>'; } 
                 else {
-                    const pastHTMLs = await Promise.all(reversedPast.map(g => buildGameCard(g.id, false)));
+                    const pastHTMLs = await Promise.all(last3GamesForCards.map(g => buildGameCard(g.id, false)));
                     pastContainer.innerHTML = pastHTMLs.join('');
                 }
+
+                // OPPONENT: Last 3 Games
+                if (oppId && oppCompleted.length > 0) {
+                    oppSection.style.display = 'block';
+                    document.getElementById('opp-team-title').innerText = oppAbbrev;
+                    const oppLast3 = oppCompleted.slice(-3).reverse();
+                    const oppPastHTMLs = await Promise.all(oppLast3.map(g => buildGameCard(g.id, false)));
+                    oppPastContainer.innerHTML = oppPastHTMLs.join('');
+                }
+
             } catch (error) { console.error(error); nextContainer.innerHTML = '<p style="color:red;">Error loading games.</p>'; pastContainer.innerHTML = ''; }
         }
 
@@ -730,7 +820,6 @@
                         let totalExp = homeRawPts + awayRawPts;
                         let homeProb = Math.round((homeRawPts / totalExp) * 100);
                         
-                        // Exaggerate probabilities slightly for visual effect
                         homeProb = homeProb + ((homeProb - 50) * 1.5); 
                         if(homeProb > 95) homeProb = 95; if(homeProb < 5) homeProb = 5;
                         homeProb = Math.round(homeProb);
