@@ -317,7 +317,7 @@
                             const l10 = team.stats.find(s => s.abbreviation === 'L10' || s.name === 'last10Games')?.displayValue || '-';
                             const abbrev = team.team.abbreviation || team.team.shortDisplayName.substring(0,3).toUpperCase();
                             
-                            const ppg = (team.stats.find(s => s.name === 'pointsFor')?.value || 110) / gamesPlayed;
+                                                       const ppg = (team.stats.find(s => s.name === 'pointsFor')?.value || 110) / gamesPlayed;
                             const oppPpg = (team.stats.find(s => s.name === 'pointsAgainst')?.value || 110) / gamesPlayed;
                             
                             let l10Wins = l10 !== '-' ? parseInt(l10.split('-')[0]) : 5;
@@ -373,7 +373,8 @@
                 
                 let anyFinal = false;
 
-                data.events.forEach(evt => {
+                // FIX: Used a for...of loop instead of forEach so we can await the missing odds fetch
+                for (const evt of data.events) {
                     const comp = evt.competitions[0];
                     const h = comp.competitors.find(x => x.homeAway === 'home');
                     const a = comp.competitors.find(x => x.homeAway === 'away');
@@ -398,10 +399,29 @@
                         let spreadDiff = Math.abs(hRaw - aRaw).toFixed(1);
                         let projSpread = `${predictedWinner} -${spreadDiff}`;
                         
-                        // Parse Lines
+                        // Parse Lines Initially
                         let bookLine = comp.odds?.[0]?.overUnder || 0;
-                        let bookLineStr = bookLine > 0 ? bookLine : 'N/A';
                         let bookSpreadStr = comp.odds?.[0]?.details || 'N/A';
+
+                        // FIX: If odds are missing (happens on past dates), fetch the event summary 'pickcenter'
+                        if ((!bookLine || bookSpreadStr === 'N/A')) {
+                            try {
+                                const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${evt.id}`);
+                                const summaryData = await summaryRes.json();
+                                if (summaryData.pickcenter && summaryData.pickcenter.length > 0) {
+                                    // Default to consensus if available, else fallback to first provider
+                                    const oddsData = summaryData.pickcenter.find(p => p.provider && p.provider.name === 'consensus') || summaryData.pickcenter[0];
+                                    if (oddsData) {
+                                        bookLine = oddsData.overUnder || bookLine;
+                                        bookSpreadStr = oddsData.details || bookSpreadStr;
+                                    }
+                                }
+                            } catch(err) {
+                                console.warn("Failed to fetch historical odds for event: " + evt.id);
+                            }
+                        }
+
+                        let bookLineStr = bookLine > 0 ? bookLine : 'N/A';
 
                         // TOTALS LOGIC
                         let evTotalHtml = "";
@@ -495,7 +515,7 @@
                             </div>
                         `;
                     }
-                });
+                }
 
                 // Attach Summary Box if there are completed games
                 if (anyFinal && (totalHits > 0 || totalMisses > 0 || totalPushes > 0 || totalPasses > 0 || spreadHits > 0 || spreadMisses > 0)) {
@@ -647,7 +667,7 @@
                     if (oppTeam) { oppId = oppTeam.team.id; oppAbbrev = oppTeam.team.abbreviation || "OPP"; }
                 }
 
-                                if (oppId) {
+                if (oppId) {
                     try {
                         const oppRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${oppId}/schedule`);
                         const oppData = await oppRes.json();
