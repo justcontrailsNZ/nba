@@ -389,6 +389,9 @@
                         
                         let bookLine = comp.odds?.[0]?.overUnder || 0;
                         let bookLineStr = bookLine > 0 ? bookLine : 'N/A';
+                        
+                        // NEW: Extracting the Book's Spread
+                        let bookSpreadStr = comp.odds?.[0]?.details || 'N/A';
 
                         let evHtml = "";
                         let resultHtml = "";
@@ -433,7 +436,7 @@
                                     <div class="slate-team-name">${a.team.abbreviation} @ ${h.team.abbreviation}</div>
                                     ${scoreDisplay}
                                 </div>
-                                <div class="metric-row"><span>Proj Spread:</span> <span class="metric-val">${projSpread}</span></div>
+                                <div class="metric-row"><span>Proj Spread: <span class="metric-val">${projSpread}</span></span> <span>Book: ${bookSpreadStr}</span></div>
                                 <div class="metric-row"><span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evHtml}</span></div>
                                 ${isFinal && resultHtml ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed #e1e4e8; text-align:right;">${resultHtml}</div>` : ''}
                             </div>
@@ -441,8 +444,7 @@
                     }
                 });
 
-                // Attach Summary Box if there are completed games
-                if (anyFinal && (totalHits > 0 || totalMisses > 0 || totalPushes > 0 || totalPasses > 0)) {
+                            if (anyFinal && (totalHits > 0 || totalMisses > 0 || totalPushes > 0 || totalPasses > 0)) {
                     html += `
                         <div style="margin-top:15px; padding:12px; background:#fff; border-radius:6px; border:1px solid #d1d9e6; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
                             <div style="font-weight:bold; font-size:12px; color:#1d428a; margin-bottom:8px; text-transform:uppercase;">📊 Daily Model Summary</div>
@@ -686,6 +688,7 @@
                 }, 
                 plugins: [winLossPlugin] 
             });
+
             if(canvasId === 'perfChart') perfChartInstance = chart;
             if(canvasId === 'h2hChart') h2hChartInstance = chart;
         }
