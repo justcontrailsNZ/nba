@@ -82,6 +82,8 @@
         .metric-val { font-weight: bold; color: #1d428a; }
         .slate-team-name { font-weight: bold; font-size: 13px; color: #333; }
         
+        .b2b-alert { background-color: #c8102e; color: #fff; padding: 2px 4px; border-radius: 3px; font-weight: bold; }
+
         .ev-badge { display: inline-block; background-color: #777; color: white; padding: 2px 5px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-left: 5px; }
         .ev-badge.positive { background-color: #28a745; color: #fff; }
         .ev-badge.neutral { background-color: #ffc107; color: #000; }
@@ -317,7 +319,7 @@
                             const l10 = team.stats.find(s => s.abbreviation === 'L10' || s.name === 'last10Games')?.displayValue || '-';
                             const abbrev = team.team.abbreviation || team.team.shortDisplayName.substring(0,3).toUpperCase();
                             
-                                                       const ppg = (team.stats.find(s => s.name === 'pointsFor')?.value || 110) / gamesPlayed;
+                            const ppg = (team.stats.find(s => s.name === 'pointsFor')?.value || 110) / gamesPlayed;
                             const oppPpg = (team.stats.find(s => s.name === 'pointsAgainst')?.value || 110) / gamesPlayed;
                             
                             let l10Wins = l10 !== '-' ? parseInt(l10.split('-')[0]) : 5;
@@ -354,7 +356,30 @@
             const mm = String(currentSlateDate.getMonth() + 1).padStart(2, '0');
             const dd = String(currentSlateDate.getDate()).padStart(2, '0');
             
+            // Format slate date properly to NZ time representation
             document.getElementById('slate-date-display').innerText = `${mm}/${dd}/${yyyy}`;
+
+            // Back-To-Back (B2B) Detection Logic
+            const yesterday = new Date(currentSlateDate); yesterday.setDate(yesterday.getDate() - 1);
+            const tomorrow = new Date(currentSlateDate); tomorrow.setDate(tomorrow.getDate() + 1);
+            const fmtDate = (d) => `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+            
+            let b2bTeams = new Set();
+            try {
+                const [resY, resT] = await Promise.all([
+                    fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${fmtDate(yesterday)}`).catch(()=>null),
+                    fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${fmtDate(tomorrow)}`).catch(()=>null)
+                ]);
+                const addTeams = async (res) => {
+                    if(res && res.ok) {
+                        const data = await res.json();
+                        (data.events || []).forEach(e => {
+                            e.competitions[0].competitors.forEach(c => b2bTeams.add(c.team.id));
+                        });
+                    }
+                };
+                await addTeams(resY); await addTeams(resT);
+            } catch(e) { console.warn("Could not fetch B2B schedule data"); }
 
             try {
                 const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${yyyy}${mm}${dd}`);
@@ -373,7 +398,6 @@
                 
                 let anyFinal = false;
 
-                // FIX: Used a for...of loop instead of forEach so we can await the missing odds fetch
                 for (const evt of data.events) {
                     const comp = evt.competitions[0];
                     const h = comp.competitors.find(x => x.homeAway === 'home');
@@ -403,13 +427,11 @@
                         let bookLine = comp.odds?.[0]?.overUnder || 0;
                         let bookSpreadStr = comp.odds?.[0]?.details || 'N/A';
 
-                        // FIX: If odds are missing (happens on past dates), fetch the event summary 'pickcenter'
                         if ((!bookLine || bookSpreadStr === 'N/A')) {
                             try {
                                 const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${evt.id}`);
                                 const summaryData = await summaryRes.json();
                                 if (summaryData.pickcenter && summaryData.pickcenter.length > 0) {
-                                    // Default to consensus if available, else fallback to first provider
                                     const oddsData = summaryData.pickcenter.find(p => p.provider && p.provider.name === 'consensus') || summaryData.pickcenter[0];
                                     if (oddsData) {
                                         bookLine = oddsData.overUnder || bookLine;
@@ -507,7 +529,10 @@
                         html += `
                             <div class="daily-slate-item">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                                    <div class="slate-team-name">${a.team.abbreviation} @ ${h.team.abbreviation}</div>
+                                    <div class="slate-team-name">
+                                        <span class="${b2bTeams.has(a.team.id) ? 'b2b-alert' : ''}">${a.team.abbreviation}</span> @ 
+                                        <span class="${b2bTeams.has(h.team.id) ? 'b2b-alert' : ''}">${h.team.abbreviation}</span>
+                                    </div>
                                     ${scoreDisplay}
                                 </div>
                                 <div class="metric-row"><span>Proj Spread: <span class="metric-val">${projSpread}</span></span> <span>Book: ${bookSpreadStr} ${evSpreadHtml} ${spreadResultHtml}</span></div>
@@ -563,7 +588,12 @@
                 const res = await fetch(`https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/seasons/${seasonYear}/types/2/leaders?limit=15`);
                 const data = await res.json();
                 
-                const category = data.categories.find(c => c.name === statType);
+                // Added Fallback for 3PM since ESPN uses different names across formats
+                let category = data.categories.find(c => c.name === statType);
+                if (!category && statType === 'threePointFieldGoalsMadePerGame') {
+                    category = data.categories.find(c => c.name.toLowerCase().includes('threepoint') && (c.name.toLowerCase().includes('made') || c.name.toLowerCase().includes('pergame')));
+                }
+
                 if (!category || !category.leaders) throw new Error("Category not found");
 
                 const topLeaders = category.leaders.slice(0, 15);
@@ -646,7 +676,8 @@
 
                 last5Games.forEach((game) => {
                     const comp = game.competitions[0];
-                    const dateStr = new Date(comp.date).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+                    // NZ Time conversion
+                    const dateStr = new Date(comp.date).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland', month: 'numeric', day: 'numeric' });
                     perfLabels.push(dateStr);
                     
                     const targetTeam = comp.competitors.find(c => c.team.id === espnId);
@@ -707,7 +738,8 @@
                     let h2hLabels = []; let h2hMyData = []; let h2hMyWL = []; let h2hOppData = []; let h2hOppWL = [];
                     h2hGames.forEach(game => {
                         const comp = game.competitions[0];
-                        h2hLabels.push(new Date(comp.date).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' }));
+                        // NZ Time conversion
+                        h2hLabels.push(new Date(comp.date).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland', month: 'numeric', day: 'numeric' }));
                         const me = comp.competitors.find(c => c.team.id === espnId);
                         const opp = comp.competitors.find(c => c.team.id === oppId);
                         if (me && opp && me.score && opp.score) {
@@ -803,12 +835,49 @@
             if(canvasId === 'h2hChart') h2hChartInstance = chart;
         }
 
+        async function fetchLastGamePerformers(teamId) {
+            try {
+                const schedRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/schedule`);
+                const schedData = await schedRes.json();
+                const completed = schedData.events.filter(e => e.competitions[0].status.type.completed);
+                if(completed.length === 0) return '';
+                
+                const lastGame = completed[completed.length - 1];
+                const sumRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${lastGame.id}`);
+                const sumData = await sumRes.json();
+                
+                if(!sumData.boxscore || !sumData.boxscore.players) return '';
+                
+                const teamBlock = sumData.boxscore.players.find(p => String(p.team.id) === String(teamId));
+                if(!teamBlock) return '';
+                
+                const tName = teamBlock.team.displayName || 'Team';
+                const bgColor = teamBlock.team.color || '333333';
+                const statsData = teamBlock.statistics[0];
+                
+                let html = `<div class="performers-box"><div class="team-perf-title" style="background-color: #${bgColor};">${tName} (Last Match Top 3)</div><ul class="performer-list">`;
+                if (statsData && statsData.athletes) {
+                    const labels = statsData.labels || [];
+                    const ptsIdx = labels.indexOf('PTS'); const rebIdx = labels.indexOf('REB'); const astIdx = labels.indexOf('AST');
+                    const activePlayers = statsData.athletes.filter(a => !a.didNotPlay);
+                    activePlayers.sort((a, b) => parseInt((b.stats && b.stats[ptsIdx]) || 0) - parseInt((a.stats && a.stats[ptsIdx]) || 0));
+                    
+                    activePlayers.slice(0, 3).forEach(p => {
+                        html += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
+                    });
+                }
+                html += `</ul></div>`;
+                return html;
+            } catch(e) { return ''; }
+        }
+
         async function buildGameCard(matchId, isUpcoming) {
             try {
                 const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${matchId}`);
                 const data = await res.json();
                 const comp = data.header.competitions[0];
-                const dateStr = new Date(comp.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                // NZ Time conversion
+                const dateStr = new Date(comp.date).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland', weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                 
                 const homeTeam = comp.competitors.find(c => c.homeAway === 'home');
                 const awayTeam = comp.competitors.find(c => c.homeAway === 'away');
@@ -829,6 +898,8 @@
                 }
 
                 let predictionHTML = '';
+                let performersHTML = '';
+
                 if (isUpcoming) {
                     const hStats = window.teamAnalyticsStore[homeTeam.team.id];
                     const aStats = window.teamAnalyticsStore[awayTeam.team.id];
@@ -857,10 +928,13 @@
                             </div>
                         `;
                     } else { predictionHTML = `<div class="prediction-box"><div class="pred-subtext">AI data loading...</div></div>`; }
-                }
-
-                let performersHTML = '';
-                if (!isUpcoming && data.boxscore && data.boxscore.players) {
+                    
+                    // Fetch top 3 performers from their respective LAST matches
+                    const awayPerf = await fetchLastGamePerformers(awayTeam.team.id);
+                    const homePerf = await fetchLastGamePerformers(homeTeam.team.id);
+                    performersHTML = awayPerf + homePerf;
+                    
+                } else if (!isUpcoming && data.boxscore && data.boxscore.players) {
                     data.boxscore.players.forEach(teamData => {
                         const tName = teamData.team.displayName || 'Team';
                         const bgColor = teamData.team.color || '333333';
@@ -912,7 +986,8 @@
                     });
 
                     relevantArticles.forEach(article => {
-                        const date = new Date(article.pubDate).toLocaleDateString();
+                        // NZ Time conversion
+                        const date = new Date(article.pubDate).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland' });
                         const desc = article.description ? (article.description.substring(0, 100) + "...") : "Read full story...";
                         const card = document.createElement('div');
                         card.className = 'news-card';
