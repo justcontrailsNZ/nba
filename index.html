@@ -247,18 +247,34 @@
                     </div>
                 </div>
 
-                <!-- Advanced Metrics Panel -->
+                <!-- Main Team Advanced Metrics Panel -->
                 <div class="flex-row">
                     <div class="flex-item panel-box" style="flex: 2;">
-                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:15px; text-align:center;">📊 Sharp Bettor's Dashboard</div>
+                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:15px; text-align:center;">📊 Main Team: Sharp Bettor's Dashboard</div>
                         <div id="advanced-metrics-container" class="metrics-grid">
                             <!-- Filled dynamically -->
                         </div>
                     </div>
                     <div class="flex-item panel-box" style="flex: 1;">
-                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:15px; text-align:center;">Pace & Efficiency Metrics</div>
+                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:15px; text-align:center;">Main Team: Pace & Efficiency</div>
                         <div id="pace-metrics-container" style="display:flex; flex-direction:column; justify-content:center; gap: 15px; font-size:14px; color:#444;">
                             <div class="loading">Loading pace data...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Opponent Team Advanced Metrics Panel (only shown when opponent exists) -->
+                <div id="opp-advanced-metrics-row" class="flex-row" style="display:none;">
+                    <div class="flex-item panel-box" style="flex: 2;">
+                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:15px; text-align:center;" id="opp-dashboard-title">📊 Opponent: Sharp Bettor's Dashboard</div>
+                        <div id="opp-advanced-metrics-container" class="metrics-grid">
+                            <!-- Filled dynamically -->
+                        </div>
+                    </div>
+                    <div class="flex-item panel-box" style="flex: 1;">
+                        <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:15px; text-align:center;" id="opp-pace-title">Opponent: Pace & Efficiency</div>
+                        <div id="opp-pace-metrics-container" style="display:flex; flex-direction:column; justify-content:center; gap: 15px; font-size:14px; color:#444;">
+                            <div class="loading">Loading opponent pace data...</div>
                         </div>
                     </div>
                 </div>
@@ -963,12 +979,16 @@
             const hotContainer = document.getElementById('hot-indicator-container');
             const h2hContainer = document.getElementById('h2h-container');
             const advancedContainer = document.getElementById('advanced-metrics-container');
+            const oppAdvancedContainer = document.getElementById('opp-advanced-metrics-container');
+            const oppPaceContainer = document.getElementById('opp-pace-metrics-container');
+            const oppMetricsRow = document.getElementById('opp-advanced-metrics-row');
             
             nextContainer.innerHTML = '<div class="loading">Finding next game...</div>';
             pastContainer.innerHTML = '<div class="loading">Loading match history...</div>';
             hotContainer.innerHTML = '<div class="loading">Analyzing momentum...</div>';
             h2hContainer.innerHTML = '<div class="loading">Loading H2H history...</div>';
             oppSection.style.display = 'none';
+            oppMetricsRow.style.display = 'none'; // hide opponent metrics initially
 
             const tStats = window.teamAnalyticsStore[espnId];
             if (tStats) {
@@ -1166,23 +1186,12 @@
                     oppPastContainer.innerHTML = oppPastHTMLs.join('');
                 }
 
-                // Advanced Metrics
+                // Main Team Advanced Metrics
                 if (tStats) {
                     const netRtg = tStats.offRtg - tStats.defRtg;
                     const tsPct = getProxyTS(espnId);
                     const orebPct = getProxyOREB(espnId);
                     
-                    let oppNetRtg = null, oppPace = null;
-                    if (oppId && window.teamAnalyticsStore[oppId]) {
-                        const oppStats = window.teamAnalyticsStore[oppId];
-                        oppNetRtg = oppStats.offRtg - oppStats.defRtg;
-                        oppPace = oppStats.estPace;
-                    }
-
-                    const combinedPace = oppPace ? (tStats.estPace + oppPace) / 2 : tStats.estPace;
-                    const paceDiff = oppPace ? tStats.estPace - oppPace : 0;
-                    const paceImpact = (paceDiff * 2.2).toFixed(1);
-
                     advancedContainer.innerHTML = `
                         <div class="metric-card">
                             <div class="metric-label">Net Rating <small>(ORTG - DRTG)</small></div>
@@ -1195,18 +1204,69 @@
                             <div class="metric-desc">League avg ~57-58%</div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-label">Pace Differential</div>
-                            <div class="metric-value">${paceDiff > 0 ? '+' : ''}${paceDiff.toFixed(1)}</div>
-                            <div class="metric-desc">vs opponent · Combined: ${combinedPace.toFixed(1)} poss · Impact: ${paceImpact} pts to total</div>
-                        </div>
-                        <div class="metric-card">
                             <div class="metric-label">Offensive Rebound %</div>
                             <div class="metric-value">${orebPct.toFixed(1)}% ${getOREBBadge(orebPct)}</div>
                             <div class="metric-desc">League avg ~27%</div>
                         </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Pace</div>
+                            <div class="metric-value">${tStats.estPace.toFixed(1)}</div>
+                            <div class="metric-desc">Possessions per 48 min</div>
+                        </div>
                     `;
                 } else {
                     advancedContainer.innerHTML = '<div class="loading">Loading advanced metrics...</div>';
+                }
+
+                // Opponent Advanced Metrics
+                if (oppId && window.teamAnalyticsStore[oppId]) {
+                    const oppStats = window.teamAnalyticsStore[oppId];
+                    const oppNetRtg = oppStats.offRtg - oppStats.defRtg;
+                    const oppTsPct = getProxyTS(oppId);
+                    const oppOrebPct = getProxyOREB(oppId);
+                    
+                    oppAdvancedContainer.innerHTML = `
+                        <div class="metric-card">
+                            <div class="metric-label">Net Rating <small>(ORTG - DRTG)</small></div>
+                            <div class="metric-value">${oppNetRtg > 0 ? '+' : ''}${oppNetRtg.toFixed(1)} ${getNetRatingBadge(oppNetRtg)}</div>
+                            <div class="metric-desc">${oppNetRtg >= 0 ? 'Average or better' : 'Below average'}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">True Shooting %</div>
+                            <div class="metric-value">${oppTsPct.toFixed(1)}% ${getTSBadge(oppTsPct)}</div>
+                            <div class="metric-desc">League avg ~57-58%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Offensive Rebound %</div>
+                            <div class="metric-value">${oppOrebPct.toFixed(1)}% ${getOREBBadge(oppOrebPct)}</div>
+                            <div class="metric-desc">League avg ~27%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Pace</div>
+                            <div class="metric-value">${oppStats.estPace.toFixed(1)}</div>
+                            <div class="metric-desc">Possessions per 48 min</div>
+                        </div>
+                    `;
+
+                    // Opponent pace metrics
+                    oppPaceContainer.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
+                            <span>Est. Pace (Poss/48)</span> <span style="font-weight:bold; color:#1d428a;">${oppStats.estPace.toFixed(1)}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
+                            <span>Offensive Rtg</span> <span style="font-weight:bold; color:#1d428a;">${oppStats.offRtg.toFixed(1)}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
+                            <span>Defensive Rtg</span> <span style="font-weight:bold; color:#c8102e;">${oppStats.defRtg.toFixed(1)}</span>
+                        </div>
+                    `;
+
+                    // Show opponent row
+                    oppMetricsRow.style.display = 'flex';
+                    document.getElementById('opp-dashboard-title').innerHTML = `📊 Opponent (${oppAbbrev}): Sharp Bettor's Dashboard`;
+                    document.getElementById('opp-pace-title').innerHTML = `Opponent (${oppAbbrev}): Pace & Efficiency`;
+                } else {
+                    oppMetricsRow.style.display = 'none';
                 }
 
             } catch (error) { console.error(error); nextContainer.innerHTML = '<p style="color:red;">Error loading games.</p>'; pastContainer.innerHTML = ''; }
