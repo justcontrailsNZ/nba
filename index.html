@@ -706,7 +706,11 @@
                         const oppLast5 = oppCompleted.slice(-5);
                         
                         oppLast5.forEach(game => {
-                            const targetOpp = game.competitions[0].competitors.find(c => c.team.id === oppId);
+                            const targetOpp = game.competitions[0].competitors.find(c => c.team.id === opp
+                                                                                                            const oppLast5 = oppCompleted.slice(-5);
+                        
+                        oppLast5.forEach(game => {
+                            const targetOpp = game.competitions[0].competitors.find(c => String(c.team.id) === String(oppId));
                             if (targetOpp && targetOpp.score) {
                                 const pts = parseInt(targetOpp.score.value);
                                 oppDataPts.push(pts); oppWL.push(targetOpp.winner ? 'W' : 'L');
@@ -720,6 +724,8 @@
                 drawChart('perfChart', perfLabels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
 
                 let h2hGames = [];
+                let lastH2HGameId = null;
+
                 if (oppId) {
                     let currentSeasonH2H = completedGames.filter(e => e.competitions[0].competitors.some(c => String(c.team.id) === String(oppId)));
                     
@@ -735,6 +741,9 @@
                 }
 
                 if (h2hGames.length > 0) {
+                    // Get the ID of the most recent H2H game for the card
+                    lastH2HGameId = h2hGames[h2hGames.length - 1].id;
+
                     let h2hLabels = []; let h2hMyData = []; let h2hMyWL = []; let h2hOppData = []; let h2hOppWL = [];
                     h2hGames.forEach(game => {
                         const comp = game.competitions[0];
@@ -777,7 +786,15 @@
                     </div>
                 `;
 
-                if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true); } 
+                // Fetch Last H2H Details to inject into the upcoming game card
+                let lastH2HHtml = '';
+                if (nextGame && lastH2HGameId) {
+                    lastH2HHtml = await buildLastH2HCard(lastH2HGameId);
+                } else if (nextGame && !lastH2HGameId) {
+                    lastH2HHtml = `<div style="margin-top:15px; border-top: 2px dashed #ccc; padding-top: 10px; text-align:center; font-size:11px; color:#777;">No recent H2H matchup found between these teams.</div>`;
+                }
+
+                if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true, lastH2HHtml); } 
                 else { nextContainer.innerHTML = '<div class="panel-box"><p style="text-align:center; color:#777;">No upcoming games scheduled.</p></div>'; }
 
                 // MAIN TEAM: Last 3 Games
@@ -835,43 +852,64 @@
             if(canvasId === 'h2hChart') h2hChartInstance = chart;
         }
 
-        async function fetchLastGamePerformers(teamId) {
+        async function buildLastH2HCard(matchId) {
             try {
-                const schedRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/schedule`);
-                const schedData = await schedRes.json();
-                const completed = schedData.events.filter(e => e.competitions[0].status.type.completed);
-                if(completed.length === 0) return '';
+                const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${matchId}`);
+                const data = await res.json();
+                const comp = data.header.competitions[0];
+                const dateStr = new Date(comp.date).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland', month: 'short', day: 'numeric', year: 'numeric' });
                 
-                const lastGame = completed[completed.length - 1];
-                const sumRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${lastGame.id}`);
-                const sumData = await sumRes.json();
-                
-                if(!sumData.boxscore || !sumData.boxscore.players) return '';
-                
-                const teamBlock = sumData.boxscore.players.find(p => String(p.team.id) === String(teamId));
-                if(!teamBlock) return '';
-                
-                const tName = teamBlock.team.displayName || 'Team';
-                const bgColor = teamBlock.team.color || '333333';
-                const statsData = teamBlock.statistics[0];
-                
-                let html = `<div class="performers-box"><div class="team-perf-title" style="background-color: #${bgColor};">${tName} (Last Match Top 3)</div><ul class="performer-list">`;
-                if (statsData && statsData.athletes) {
-                    const labels = statsData.labels || [];
-                    const ptsIdx = labels.indexOf('PTS'); const rebIdx = labels.indexOf('REB'); const astIdx = labels.indexOf('AST');
-                    const activePlayers = statsData.athletes.filter(a => !a.didNotPlay);
-                    activePlayers.sort((a, b) => parseInt((b.stats && b.stats[ptsIdx]) || 0) - parseInt((a.stats && a.stats[ptsIdx]) || 0));
-                    
-                    activePlayers.slice(0, 3).forEach(p => {
-                        html += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
+                const homeTeam = comp.competitors.find(c => c.homeAway === 'home');
+                const awayTeam = comp.competitors.find(c => c.homeAway === 'away');
+
+                const hScore = homeTeam.score || '0';
+                const aScore = awayTeam.score || '0';
+                const hAbbr = homeTeam.team.abbreviation || 'HME';
+                const aAbbr = awayTeam.team.abbreviation || 'AWY';
+
+                let spreadStr = "Odds N/A";
+                if (data.pickcenter && data.pickcenter.length > 0 && data.pickcenter[0].details) {
+                    spreadStr = `Odds: ${data.pickcenter[0].details} | O/U: ${data.pickcenter[0].overUnder || '--'}`;
+                }
+
+                let performersHTML = '';
+                if (data.boxscore && data.boxscore.players) {
+                    data.boxscore.players.forEach(teamData => {
+                        const tName = teamData.team.displayName || 'Team';
+                        const bgColor = teamData.team.color || '333333';
+                        const statsData = teamData.statistics[0];
+                        performersHTML += `<div class="performers-box" style="margin-top:4px;"><div class="team-perf-title" style="background-color: #${bgColor};">${tName} Top 3</div><ul class="performer-list">`;
+                        if (statsData && statsData.athletes) {
+                            const labels = statsData.labels || [];
+                            const ptsIdx = labels.indexOf('PTS'); const rebIdx = labels.indexOf('REB'); const astIdx = labels.indexOf('AST');
+                            const activePlayers = statsData.athletes.filter(a => !a.didNotPlay);
+                            activePlayers.sort((a, b) => parseInt((b.stats && b.stats[ptsIdx]) || 0) - parseInt((a.stats && a.stats[ptsIdx]) || 0));
+                            
+                            activePlayers.slice(0, 3).forEach(p => {
+                                performersHTML += `<li><b>${p.athlete?.shortName || 'Unknown'}</b> <span>${(p.stats && p.stats[ptsIdx]) || 0} PTS, ${(p.stats && p.stats[rebIdx]) || 0} REB, ${(p.stats && p.stats[astIdx]) || 0} AST</span></li>`;
+                            });
+                        }
+                        performersHTML += `</ul></div>`;
                     });
                 }
-                html += `</ul></div>`;
-                return html;
-            } catch(e) { return ''; }
+
+                return `
+                    <div style="margin-top:15px; border-top: 2px dashed #ccc; padding-top: 10px;">
+                        <div style="font-size:12px; font-weight:bold; color:#1d428a; text-align:center; margin-bottom:5px; text-transform:uppercase;">⏪ Previous H2H Matchup</div>
+                        <div style="text-align:center; font-size:11px; color:#555; margin-bottom:5px;">${dateStr}</div>
+                        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:14px; background:#f8f9fa; padding:5px 10px; border-radius:4px; border:1px solid #eee;">
+                            <span>${aAbbr} ${aScore}</span>
+                            <span>@</span>
+                            <span>${hAbbr} ${hScore}</span>
+                        </div>
+                        <div style="text-align:center; font-size:10px; color:#666; margin: 5px 0;">🎯 ${spreadStr}</div>
+                        ${performersHTML}
+                    </div>
+                `;
+            } catch (e) { return ''; }
         }
 
-        async function buildGameCard(matchId, isUpcoming) {
+        async function buildGameCard(matchId, isUpcoming, lastH2HHtml = '') {
             try {
                 const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${matchId}`);
                 const data = await res.json();
@@ -929,10 +967,8 @@
                         `;
                     } else { predictionHTML = `<div class="prediction-box"><div class="pred-subtext">AI data loading...</div></div>`; }
                     
-                    // Fetch top 3 performers from their respective LAST matches
-                    const awayPerf = await fetchLastGamePerformers(awayTeam.team.id);
-                    const homePerf = await fetchLastGamePerformers(homeTeam.team.id);
-                    performersHTML = awayPerf + homePerf;
+                    // Attach the H2H string we built and passed into the function
+                    performersHTML = lastH2HHtml;
                     
                 } else if (!isUpcoming && data.boxscore && data.boxscore.players) {
                     data.boxscore.players.forEach(teamData => {
