@@ -202,9 +202,8 @@
                 <div class="slate-content" id="slate-data-container">
                     <div class="loading">Waiting for system init...</div>
                 </div>
-                <!-- 10-Day and 30-Day Summary Boxes (added below the daily content) -->
+                <!-- 10-Day Summary (appears below the daily slate) -->
                 <div id="ten-day-summary-container"></div>
-                <div id="thirty-day-summary-container"></div>
             </div>
         </div>
 
@@ -581,9 +580,8 @@
 
                 if (!data.events || data.events.length === 0) {
                     container.innerHTML = '<p style="text-align:center;color:#666;font-size:12px;margin-top:20px;">No games scheduled for this date.</p>';
-                    // Still update summaries
+                    // Still update 10-day summary
                     fetchAggregatedSummary(currentSlateDate, 10, 'ten-day-summary-container', '📊 Last 10 Game Days');
-                    fetchAggregatedSummary(currentSlateDate, 30, 'thirty-day-summary-container', '📊 Last 30 Game Days');
                     return;
                 }
 
@@ -663,12 +661,17 @@
                             else { evSpreadHtml = `<span class="ev-badge neutral">PASS</span>`; }
                         }
 
-                        // Format game time in NZ time
+                        // Format game time in NZ time and show winner for final games
                         const gameDate = new Date(comp.date);
                         const nzTimeStr = gameDate.toLocaleTimeString('en-NZ', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit' });
-                        const scoreDisplay = isFinal ? 
-                            `<span style="color:#fff; background:#1d428a; padding:2px 5px; border-radius:3px; font-size:11px;">${aScore} - ${hScore}</span>` : 
-                            `<span style="font-size:10px; color:#888;">${nzTimeStr}</span>`;
+                        
+                        let scoreDisplay;
+                        if (isFinal) {
+                            const winnerAbbrev = aScore > hScore ? a.team.abbreviation : h.team.abbreviation;
+                            scoreDisplay = `<span style="color:#fff; background:#1d428a; padding:2px 5px; border-radius:3px; font-size:11px;">${winnerAbbrev} wins ${aScore} - ${hScore}</span>`;
+                        } else {
+                            scoreDisplay = `<span style="font-size:10px; color:#888;">${nzTimeStr}</span>`;
+                        }
 
                         html += `
                             <div class="daily-slate-item">
@@ -760,14 +763,12 @@
 
                 container.innerHTML = html;
 
-                // Update the 10-day and 30-day summaries (based on current date)
+                // Update the 10-day summary (based on current date)
                 fetchAggregatedSummary(currentSlateDate, 10, 'ten-day-summary-container', '📊 Last 10 Game Days');
-                fetchAggregatedSummary(currentSlateDate, 30, 'thirty-day-summary-container', '📊 Last 30 Game Days');
 
             } catch(e) { 
                 container.innerHTML = '<p style="color:#c8102e;font-size:12px;">Error connecting to slate data.</p>';
                 fetchAggregatedSummary(currentSlateDate, 10, 'ten-day-summary-container', '📊 Last 10 Game Days');
-                fetchAggregatedSummary(currentSlateDate, 30, 'thirty-day-summary-container', '📊 Last 30 Game Days');
             }
         }
 
