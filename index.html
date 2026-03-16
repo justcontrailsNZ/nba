@@ -132,6 +132,17 @@
         .badge-good { background: #17a2b8; }
         .badge-avg { background: #ffc107; color: #333; }
         .badge-poor { background: #dc3545; }
+
+        /* 10-day summary box */
+        .summary-box { margin-top: 15px; padding: 12px; background: #fff; border-radius: 6px; border: 1px solid #d1d9e6; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .summary-title { font-weight: bold; font-size: 13px; color: #1d428a; margin-bottom: 10px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .summary-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+        .summary-label { font-weight: bold; }
+        .summary-values span { margin-left: 8px; }
+        .hit { color: #28a745; }
+        .miss { color: #c8102e; }
+        .push { color: #d48806; }
+        .pass { color: #888; }
     </style>
 </head>
 <body onload="initGlobalData()">
@@ -191,6 +202,8 @@
                 <div class="slate-content" id="slate-data-container">
                     <div class="loading">Waiting for system init...</div>
                 </div>
+                <!-- 10‑Day Summary will be inserted here by JavaScript -->
+                <div id="ten-day-summary-container"></div>
             </div>
         </div>
 
@@ -215,7 +228,7 @@
                     </div>
                 </div>
 
-                <!-- Net Rating & Shot Profile Analytics Row -->
+                <!-- Net Rating & Shot Profile Analytics Row (directly below H2H) -->
                 <div class="flex-row">
                     <div class="flex-item panel-box">
                         <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Net Rating Trend: Pace-Adjusted (Last 10)</div>
@@ -227,7 +240,7 @@
                     </div>
                 </div>
 
-                <!-- NEW: Advanced Metrics Panel (replaces quarter splits) -->
+                <!-- Advanced Metrics Panel (replaces quarter splits) -->
                 <div class="flex-row">
                     <div class="flex-item panel-box" style="flex: 2;">
                         <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:15px; text-align:center;">📊 Sharp Bettor's Dashboard</div>
@@ -393,6 +406,152 @@
             loadDailySlate(offset);
         }
 
+        // New function to fetch and display 10‑day summary
+        async function updateTenDaySummary() {
+            const container = document.getElementById('ten-day-summary-container');
+            container.innerHTML = '<div class="loading">Loading 10‑day summary...</div>';
+
+            // Aggregate totals
+            let totalHits = 0, totalMisses = 0, totalPushes = 0, totalPasses = 0;
+            let spreadHits = 0, spreadMisses = 0, spreadPushes = 0, spreadPasses = 0;
+            let daysProcessed = 0;
+
+            // Start from current date and go back up to 10 days with games
+            const startDate = new Date(currentSlateDate);
+            for (let i = 0; i < 10; i++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() - i);
+                const yyyy = date.getFullYear();
+                const mm = String(date.getMonth() + 1).padStart(2, '0');
+                const dd = String(date.getDate()).padStart(2, '0');
+
+                try {
+                    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${yyyy}${mm}${dd}`);
+                    const data = await res.json();
+                    if (!data.events || data.events.length === 0) continue;
+
+                    daysProcessed++;
+
+                    for (const evt of data.events) {
+                        const comp = evt.competitions[0];
+                        const h = comp.competitors.find(x => x.homeAway === 'home');
+                        const a = comp.competitors.find(x => x.homeAway === 'away');
+                        const isFinal = comp.status.type.completed;
+                        if (!isFinal) continue;
+
+                        const hScore = parseInt(h.score || 0);
+                        const aScore = parseInt(a.score || 0);
+                        const actualTotal = hScore + aScore;
+                        const actualHomeMargin = hScore - aScore;
+
+                        const sH = window.teamAnalyticsStore[h.team.id];
+                        const sA = window.teamAnalyticsStore[a.team.id];
+                        if (!sH || !sA) continue;
+
+                        const ep = (sH.estPace + sA.estPace) / 2;
+                        let hRaw = ((sH.offRtg + sA.defRtg)/2)*(ep/100) + 3 + ((sH.formWeight-0.5)*5);
+                        let aRaw = ((sA.offRtg + sH.defRtg)/2)*(ep/100) + ((sA.formWeight-0.5)*5);
+                        let tExp = hRaw + aRaw;
+
+                        let bookLine = comp.odds?.[0]?.overUnder || 0;
+                        let bookSpreadStr = comp.odds?.[0]?.details || 'N/A';
+
+                        // Try to fetch better odds if missing
+                        if ((!bookLine || bookSpreadStr === 'N/A')) {
+                            try {
+                                const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${evt.id}`);
+                                const summaryData = await summaryRes.json();
+                                if (summaryData.pickcenter && summaryData.pickcenter.length > 0) {
+                                    const oddsData = summaryData.pickcenter.find(p => p.provider && p.provider.name === 'consensus') || summaryData.pickcenter[0];
+                                    if (oddsData) {
+                                        bookLine = oddsData.overUnder || bookLine;
+                                        bookSpreadStr = oddsData.details || bookSpreadStr;
+                                    }
+                                }
+                            } catch(err) {}
+                        }
+
+                        // Totals
+                        if (bookLine > 0) {
+                            let diff = Math.abs(tExp - bookLine);
+                            let isOverPick = tExp > bookLine;
+                            if (diff > 4.0) {
+                                let overHit = actualTotal > bookLine;
+                                let underHit = actualTotal < bookLine;
+                                let wonPick = (isOverPick && overHit) || (!isOverPick && underHit);
+                                if (actualTotal === bookLine) totalPushes++;
+                                else if (wonPick) totalHits++;
+                                else totalMisses++;
+                            } else {
+                                totalPasses++;
+                            }
+                        }
+
+                        // Spreads
+                        if (bookSpreadStr !== 'N/A') {
+                            let bookHomeMargin = 0;
+                            if (bookSpreadStr.toUpperCase() !== 'EVEN') {
+                                const parts = bookSpreadStr.split(' ');
+                                const fav = parts[0];
+                                const val = parseFloat(parts[1] || 0);
+                                if (fav === h.team.abbreviation) bookHomeMargin = Math.abs(val);
+                                else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
+                            }
+                            const modelHomeMargin = hRaw - aRaw;
+                            const marginDiff = modelHomeMargin - bookHomeMargin;
+                            let pickSide = null;
+
+                            if (marginDiff > 2.5) pickSide = 'home';
+                            else if (marginDiff < -2.5) pickSide = 'away';
+                            else {
+                                spreadPasses++;
+                                // Still need to process result if we have a pick? No, it's a pass.
+                                // So skip the result calculation.
+                                // But we already incremented passes, so continue.
+                                // However we still need to consider if it's a pass, we don't evaluate hit/miss.
+                                // So we should not evaluate hit/miss for passes.
+                                // So we need to structure differently: if pickSide is null, it's a pass.
+                                // Then after this, only if pickSide is not null, we evaluate.
+                            }
+
+                            if (pickSide) {
+                                if (actualHomeMargin === bookHomeMargin) spreadPushes++;
+                                else if ((pickSide === 'home' && actualHomeMargin > bookHomeMargin) || (pickSide === 'away' && actualHomeMargin < bookHomeMargin)) spreadHits++;
+                                else spreadMisses++;
+                            }
+                            // If pickSide is null, we already counted as pass above.
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Could not fetch data for ${yyyy}-${mm}-${dd}`);
+                }
+            }
+
+            container.innerHTML = `
+                <div class="summary-box">
+                    <div class="summary-title">📊 Last 10 Days Summary (${daysProcessed} days with games)</div>
+                    <div class="summary-row">
+                        <span class="summary-label">SPREADS:</span>
+                        <div class="summary-values">
+                            <span class="hit">✅ ${spreadHits}</span>
+                            <span class="miss">❌ ${spreadMisses}</span>
+                            <span class="push">⚖️ ${spreadPushes}</span>
+                            <span class="pass">⏸️ ${spreadPasses}</span>
+                        </div>
+                    </div>
+                    <div class="summary-row">
+                        <span class="summary-label">TOTALS:</span>
+                        <div class="summary-values">
+                            <span class="hit">✅ ${totalHits}</span>
+                            <span class="miss">❌ ${totalMisses}</span>
+                            <span class="push">⚖️ ${totalPushes}</span>
+                            <span class="pass">⏸️ ${totalPasses}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         async function loadDailySlate(offset = 0) {
             currentSlateDate.setDate(currentSlateDate.getDate() + offset);
             const container = document.getElementById('slate-data-container');
@@ -404,6 +563,7 @@
             
             document.getElementById('slate-date-display').innerText = `${mm}/${dd}/${yyyy}`;
 
+            // B2B detection (same as before)
             const yesterday = new Date(currentSlateDate); yesterday.setDate(yesterday.getDate() - 1);
             const tomorrow = new Date(currentSlateDate); tomorrow.setDate(tomorrow.getDate() + 1);
             const fmtDate = (d) => `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
@@ -431,20 +591,18 @@
 
                 if (!data.events || data.events.length === 0) {
                     container.innerHTML = '<p style="text-align:center;color:#666;font-size:12px;margin-top:20px;">No games scheduled for this date.</p>';
+                    // Still update 10‑day summary
+                    updateTenDaySummary();
                     return;
                 }
 
                 let html = '';
-                let totalHits = 0; let totalMisses = 0; let totalPushes = 0; let totalPasses = 0;
-                let spreadHits = 0; let spreadMisses = 0; let spreadPushes = 0; let spreadPasses = 0;
-                let anyFinal = false;
 
                 for (const evt of data.events) {
                     const comp = evt.competitions[0];
                     const h = comp.competitors.find(x => x.homeAway === 'home');
                     const a = comp.competitors.find(x => x.homeAway === 'away');
                     const isFinal = comp.status.type.completed;
-                    if (isFinal) anyFinal = true;
 
                     const hScore = parseInt(h.score || 0);
                     const aScore = parseInt(a.score || 0);
@@ -483,27 +641,19 @@
 
                         let bookLineStr = bookLine > 0 ? bookLine : 'N/A';
 
-                        let evTotalHtml = ""; let totalResultHtml = "";
+                        // EV badges (no summary now, just display)
+                        let evTotalHtml = "";
                         if(bookLine > 0) {
                             let diff = Math.abs(tExp - bookLine);
                             let isOverPick = tExp > bookLine;
-                            
                             if(diff > 4.0) {
                                 evTotalHtml = `<span class="ev-badge positive">${isOverPick ? '+EV OVER' : '+EV UNDER'}</span>`;
-                                if (isFinal) {
-                                    let overHit = actualTotal > bookLine; let underHit = actualTotal < bookLine;
-                                    let wonPick = (isOverPick && overHit) || (!isOverPick && underHit);
-                                    if (actualTotal === bookLine) { totalResultHtml = `<span style="color:#d48806; font-weight:bold; font-size:11px;">⚖️ PUSH</span>`; totalPushes++; } 
-                                    else if (wonPick) { totalResultHtml = `<span style="color:#28a745; font-weight:bold; font-size:11px;">✅ HIT</span>`; totalHits++; } 
-                                    else { totalResultHtml = `<span style="color:#c8102e; font-weight:bold; font-size:11px;">❌ MISS</span>`; totalMisses++; }
-                                }
                             } else {
                                 evTotalHtml = `<span class="ev-badge neutral">PASS</span>`;
-                                if (isFinal) { totalResultHtml = `<span style="color:#888; font-weight:bold; font-size:11px;">⏸️ PASS</span>`; totalPasses++; }
                             }
                         }
 
-                        let evSpreadHtml = ""; let spreadResultHtml = "";
+                        let evSpreadHtml = "";
                         if (bookSpreadStr !== 'N/A') {
                             let bookHomeMargin = 0;
                             if (bookSpreadStr.toUpperCase() !== 'EVEN') {
@@ -512,23 +662,18 @@
                                 if (fav === h.team.abbreviation) bookHomeMargin = Math.abs(val);
                                 else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
                             }
-                            
                             const modelHomeMargin = hRaw - aRaw; const marginDiff = modelHomeMargin - bookHomeMargin;
-                            let pickSide = null;
-                            
-                            if (marginDiff > 2.5) { pickSide = 'home'; evSpreadHtml = `<span class="ev-badge positive">+EV ${h.team.abbreviation}</span>`; } 
-                            else if (marginDiff < -2.5) { pickSide = 'away'; evSpreadHtml = `<span class="ev-badge positive">+EV ${a.team.abbreviation}</span>`; } 
-                            else { evSpreadHtml = `<span class="ev-badge neutral">PASS</span>`; if (isFinal) spreadPasses++; }
-
-                            if (isFinal && pickSide) {
-                                if (actualHomeMargin === bookHomeMargin) { spreadResultHtml = `<span style="color:#d48806; font-weight:bold; font-size:11px;">⚖️ PUSH</span>`; spreadPushes++; } 
-                                else if ((pickSide === 'home' && actualHomeMargin > bookHomeMargin) || (pickSide === 'away' && actualHomeMargin < bookHomeMargin)) { spreadResultHtml = `<span style="color:#28a745; font-weight:bold; font-size:11px;">✅ HIT</span>`; spreadHits++; } 
-                                else { spreadResultHtml = `<span style="color:#c8102e; font-weight:bold; font-size:11px;">❌ MISS</span>`; spreadMisses++; }
-                            } else if (isFinal && !pickSide) { spreadResultHtml = `<span style="color:#888; font-weight:bold; font-size:11px;">⏸️ PASS</span>`; }
+                            if (marginDiff > 2.5) { evSpreadHtml = `<span class="ev-badge positive">+EV ${h.team.abbreviation}</span>`; } 
+                            else if (marginDiff < -2.5) { evSpreadHtml = `<span class="ev-badge positive">+EV ${a.team.abbreviation}</span>`; } 
+                            else { evSpreadHtml = `<span class="ev-badge neutral">PASS</span>`; }
                         }
 
-                        let winnerAbbrev = aScore > hScore ? a.team.abbreviation : h.team.abbreviation;
-                        let scoreDisplay = isFinal ? `<span style="color:#fff; background:#1d428a; padding:2px 5px; border-radius:3px; font-size:11px;">${winnerAbbrev} wins ${aScore} - ${hScore}</span>` : `<span style="font-size:10px; color:#888;">${comp.status.type.shortDetail}</span>`;
+                        // Format game time in NZ time
+                        const gameDate = new Date(comp.date);
+                        const nzTimeStr = gameDate.toLocaleTimeString('en-NZ', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit' });
+                        const scoreDisplay = isFinal ? 
+                            `<span style="color:#fff; background:#1d428a; padding:2px 5px; border-radius:3px; font-size:11px;">${aScore} - ${hScore}</span>` : 
+                            `<span style="font-size:10px; color:#888;">${nzTimeStr}</span>`;
 
                         html += `
                             <div class="daily-slate-item">
@@ -539,29 +684,21 @@
                                     </div>
                                     ${scoreDisplay}
                                 </div>
-                                <div class="metric-row"><span>Proj Spread: <span class="metric-val">${projSpread}</span></span> <span>Book: ${bookSpreadStr} ${evSpreadHtml} ${spreadResultHtml}</span></div>
-                                <div class="metric-row"><span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evTotalHtml} ${totalResultHtml}</span></div>
+                                <div class="metric-row"><span>Proj Spread: <span class="metric-val">${projSpread}</span></span> <span>Book: ${bookSpreadStr} ${evSpreadHtml}</span></div>
+                                <div class="metric-row"><span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evTotalHtml}</span></div>
                             </div>
                         `;
                     }
                 }
 
-                if (anyFinal && (totalHits > 0 || totalMisses > 0 || totalPushes > 0 || totalPasses > 0 || spreadHits > 0 || spreadMisses > 0)) {
-                    html += `
-                        <div style="margin-top:15px; padding:12px; background:#fff; border-radius:6px; border:1px solid #d1d9e6; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                            <div style="font-weight:bold; font-size:13px; color:#1d428a; margin-bottom:10px; text-transform:uppercase; border-bottom:1px solid #eee; padding-bottom:5px;">📊 Slate Results Summary</div>
-                            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
-                                <b>SPREADS:</b><div><span style="color:#28a745; margin-left:8px;">✅ ${spreadHits}</span><span style="color:#c8102e; margin-left:8px;">❌ ${spreadMisses}</span><span style="color:#d48806; margin-left:8px;">⚖️ ${spreadPushes}</span><span style="color:#888; margin-left:8px;">⏸️ ${spreadPasses}</span></div>
-                            </div>
-                            <div style="display:flex; justify-content:space-between; font-size:12px;">
-                                <b>TOTALS:</b><div><span style="color:#28a745; margin-left:8px;">✅ ${totalHits}</span><span style="color:#c8102e; margin-left:8px;">❌ ${totalMisses}</span><span style="color:#d48806; margin-left:8px;">⚖️ ${totalPushes}</span><span style="color:#888; margin-left:8px;">⏸️ ${totalPasses}</span></div>
-                            </div>
-                        </div>
-                    `;
-                }
-
                 container.innerHTML = html;
-            } catch(e) { container.innerHTML = '<p style="color:#c8102e;font-size:12px;">Error connecting to slate data.</p>'; }
+                // Update 10‑day summary after loading daily slate
+                updateTenDaySummary();
+
+            } catch(e) { 
+                container.innerHTML = '<p style="color:#c8102e;font-size:12px;">Error connecting to slate data.</p>';
+                updateTenDaySummary();
+            }
         }
 
         async function fetchLeaders() {
@@ -635,18 +772,15 @@
         function getProxyTS(teamId) {
             let seed = parseInt(teamId);
             const random = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
-            // NBA average TS% ~57-58%
-            return 53 + random() * 10; // range 53-63%
+            return 53 + random() * 10;
         }
 
         function getProxyOREB(teamId) {
             let seed = parseInt(teamId) + 50;
             const random = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
-            // League average OREB% ~27%
-            return 22 + random() * 12; // range 22-34%
+            return 22 + random() * 12;
         }
 
-        // Helper to get rating badge for Net Rating
         function getNetRatingBadge(net) {
             if (net >= 8) return '<span class="metric-badge badge-elite">Elite</span>';
             if (net >= 4) return '<span class="metric-badge badge-good">Good</span>';
@@ -654,7 +788,6 @@
             return '<span class="metric-badge badge-poor">Poor</span>';
         }
 
-        // Helper to get TS% badge
         function getTSBadge(ts) {
             if (ts >= 60) return '<span class="metric-badge badge-elite">Elite</span>';
             if (ts >= 57) return '<span class="metric-badge badge-good">Good</span>';
@@ -662,12 +795,30 @@
             return '<span class="metric-badge badge-poor">Poor</span>';
         }
 
-        // Helper to get OREB badge
         function getOREBBadge(oreb) {
             if (oreb >= 30) return '<span class="metric-badge badge-elite">Elite</span>';
             if (oreb >= 27) return '<span class="metric-badge badge-good">Good</span>';
             if (oreb >= 24) return '<span class="metric-badge badge-avg">Average</span>';
             return '<span class="metric-badge badge-poor">Poor</span>';
+        }
+
+        // Proxy generator for Shot Profile (unchanged)
+        function getProxyShotProfile(teamId, isDefense = false) {
+            let seed = parseInt(teamId) + (isDefense ? 100 : 0);
+            const random = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
+            
+            let rim = 25 + (random() * 10); 
+            let paint = 10 + (random() * 10);
+            let mid = 5 + (random() * 15); 
+            let c3 = 5 + (random() * 7); 
+            let ab3 = 25 + (random() * 15); 
+            
+            let total = rim + paint + mid + c3 + ab3;
+            return [
+                parseFloat(((rim/total)*100).toFixed(1)), parseFloat(((paint/total)*100).toFixed(1)),
+                parseFloat(((mid/total)*100).toFixed(1)), parseFloat(((c3/total)*100).toFixed(1)),
+                parseFloat(((ab3/total)*100).toFixed(1))
+            ];
         }
 
         async function fetchGamesAndDrawCharts(espnId, teamAbbrev) {
@@ -685,7 +836,6 @@
             h2hContainer.innerHTML = '<div class="loading">Loading H2H history...</div>';
             oppSection.style.display = 'none';
 
-            // Draw Pace Metrics Block (basic)
             const tStats = window.teamAnalyticsStore[espnId];
             if (tStats) {
                 document.getElementById('pace-metrics-container').innerHTML = `
@@ -730,7 +880,6 @@
                     }
                 });
 
-                // NET RATING DATA FOR MAIN TEAM (LAST 10)
                 let myNetRtgData = [];
                 let myPace = tStats?.estPace || 100;
                 const myLast10 = completedGames.slice(-10);
@@ -773,7 +922,6 @@
                             }
                         });
 
-                        // NET RATING DATA FOR OPPONENT (LAST 10)
                         let oppPace = window.teamAnalyticsStore[oppId]?.estPace || 100;
                         const oppLast10 = oppCompleted.slice(-10);
                         oppLast10.forEach(game => {
@@ -791,17 +939,14 @@
 
                 drawChart('perfChart', perfLabels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
                 
-                // Net Rating Trend Chart
                 let maxGames = Math.max(myNetRtgData.length, oppNetRtgData.length);
                 let netRtgLabels = Array.from({length: maxGames}, (_, i) => `G${i + 1}`);
                 drawNetRtgChart('netRtgChart', netRtgLabels, teamAbbrev, myNetRtgData, oppAbbrev, oppNetRtgData);
 
-                // Shot Profile Radar Chart
                 let myShotProfile = getProxyShotProfile(espnId, false);
                 let oppDefProfile = oppId ? getProxyShotProfile(oppId, true) : [20,20,20,20,20];
                 drawShotProfileChart('shotProfileChart', teamAbbrev + ' (Off)', myShotProfile, oppAbbrev + ' (Def)', oppDefProfile);
 
-                // H2H data
                 let h2hGames = [];
                 let lastH2HGameId = null;
 
@@ -863,7 +1008,6 @@
                     </div>
                 `;
 
-                // Last H2H details for upcoming card
                 let lastH2HHtml = '';
                 if (nextGame && lastH2HGameId) {
                     lastH2HHtml = await buildLastH2HCard(lastH2HGameId);
@@ -874,14 +1018,12 @@
                 if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true, lastH2HHtml); } 
                 else { nextContainer.innerHTML = '<div class="panel-box"><p style="text-align:center; color:#777;">No upcoming games scheduled.</p></div>'; }
 
-                // MAIN TEAM: Last 3 Games
                 if (last3GamesForCards.length === 0) { pastContainer.innerHTML = '<p>No completed games found.</p>'; } 
                 else {
                     const pastHTMLs = await Promise.all(last3GamesForCards.map(g => buildGameCard(g.id, false)));
                     pastContainer.innerHTML = pastHTMLs.join('');
                 }
 
-                // OPPONENT: Last 3 Games
                 if (oppId && oppCompleted.length > 0) {
                     oppSection.style.display = 'block';
                     document.getElementById('opp-team-title').innerText = oppAbbrev;
@@ -890,26 +1032,22 @@
                     oppPastContainer.innerHTML = oppPastHTMLs.join('');
                 }
 
-                // --- Advanced Metrics (Sharp Bettor's Dashboard) ---
+                // Advanced Metrics
                 if (tStats) {
                     const netRtg = tStats.offRtg - tStats.defRtg;
                     const tsPct = getProxyTS(espnId);
                     const orebPct = getProxyOREB(espnId);
                     
-                    // Opponent advanced metrics
-                    let oppNetRtg = null, oppTsPct = null, oppOrebPct = null, oppPace = null;
+                    let oppNetRtg = null, oppPace = null;
                     if (oppId && window.teamAnalyticsStore[oppId]) {
                         const oppStats = window.teamAnalyticsStore[oppId];
                         oppNetRtg = oppStats.offRtg - oppStats.defRtg;
-                        oppTsPct = getProxyTS(oppId);
-                        oppOrebPct = getProxyOREB(oppId);
                         oppPace = oppStats.estPace;
                     }
 
-                    // Combined pace impact
                     const combinedPace = oppPace ? (tStats.estPace + oppPace) / 2 : tStats.estPace;
                     const paceDiff = oppPace ? tStats.estPace - oppPace : 0;
-                    const paceImpact = (paceDiff * 2.2).toFixed(1); // each extra possession adds ~2.2 points
+                    const paceImpact = (paceDiff * 2.2).toFixed(1);
 
                     advancedContainer.innerHTML = `
                         <div class="metric-card">
@@ -938,25 +1076,6 @@
                 }
 
             } catch (error) { console.error(error); nextContainer.innerHTML = '<p style="color:red;">Error loading games.</p>'; pastContainer.innerHTML = ''; }
-        }
-
-        // Proxy generator for Shot Profile (unchanged)
-        function getProxyShotProfile(teamId, isDefense = false) {
-            let seed = parseInt(teamId) + (isDefense ? 100 : 0);
-            const random = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
-            
-            let rim = 25 + (random() * 10); 
-            let paint = 10 + (random() * 10);
-            let mid = 5 + (random() * 15); 
-            let c3 = 5 + (random() * 7); 
-            let ab3 = 25 + (random() * 15); 
-            
-            let total = rim + paint + mid + c3 + ab3;
-            return [
-                parseFloat(((rim/total)*100).toFixed(1)), parseFloat(((paint/total)*100).toFixed(1)),
-                parseFloat(((mid/total)*100).toFixed(1)), parseFloat(((c3/total)*100).toFixed(1)),
-                parseFloat(((ab3/total)*100).toFixed(1))
-            ];
         }
 
         function drawChart(canvasId, labels, myName, myData, myWL, oppName, oppData, oppWL) {
@@ -1073,9 +1192,7 @@
                             suggestedMin: 0,
                             suggestedMax: 40,
                             ticks: { 
-                                display: true,
-                                stepSize: 10,
-                                callback: function(value) { return value + '%'; }
+                                display: false      // Hide numbers on the web
                             }
                         }
                     },
