@@ -703,14 +703,10 @@
                         const oppRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${oppId}/schedule`);
                         const oppData = await oppRes.json();
                         oppCompleted = oppData.events.filter(e => e.competitions[0].status.type.completed === true);
-                        const oppLast5 = oppCompleted.slice(-5);
+                                                const oppLast5 = oppCompleted.slice(-5);
                         
                         oppLast5.forEach(game => {
-                            const targetOpp = game.competitions[0].competitors.find(c => c.team.id === opp
-                                                                                                            const oppLast5 = oppCompleted.slice(-5);
-                        
-                        oppLast5.forEach(game => {
-                            const targetOpp = game.competitions[0].competitors.find(c => String(c.team.id) === String(oppId));
+                            const targetOpp = game.competitions[0].competitors.find(c => c.team.id === oppId);
                             if (targetOpp && targetOpp.score) {
                                 const pts = parseInt(targetOpp.score.value);
                                 oppDataPts.push(pts); oppWL.push(targetOpp.winner ? 'W' : 'L');
