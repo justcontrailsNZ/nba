@@ -49,6 +49,8 @@
         .panel-box { background: #fff; border-radius: 8px; border: 1px solid #e1e4e8; padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); height: 100%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; }
         
         .chart-container { position: relative; height: 180px; width: 100%; padding-top: 10px;}
+        /* Larger container for shot profile */
+        .chart-container-large { position: relative; height: 300px; width: 100%; padding-top: 10px;}
 
         .prediction-box { background: #eef2f5; border-radius: 6px; padding: 12px; margin-top: auto; border: 1px solid #d1d9e6; text-align: center; }
         .pred-title { font-size: 12px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; }
@@ -202,7 +204,7 @@
                     </div>
                 </div>
 
-                <!-- Net Rating & Shot Profile Analytics Row -->
+                <!-- Net Rating & Shot Profile Analytics Row (now directly below H2H) -->
                 <div class="flex-row">
                     <div class="flex-item panel-box">
                         <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Net Rating Trend: Pace-Adjusted (Last 10)</div>
@@ -210,11 +212,11 @@
                     </div>
                     <div class="flex-item panel-box">
                         <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Shot Profile: Offense vs Opp Defense</div>
-                        <div class="chart-container" style="height: 220px;"><canvas id="shotProfileChart"></canvas></div>
+                        <div class="chart-container-large"><canvas id="shotProfileChart"></canvas></div>
                     </div>
                 </div>
 
-                <!-- NEW: Quarter Splits & Pace Overview Row -->
+                <!-- Quarter Splits & Pace Overview Row -->
                 <div class="flex-row">
                     <div class="flex-item panel-box" style="flex: 2;">
                         <div style="font-size:13px; font-weight:bold; color:#555; margin-bottom:5px; text-align:center;">Quarter Splits: Avg Scored vs Allowed (L5)</div>
@@ -820,7 +822,7 @@
                 let netRtgLabels = Array.from({length: maxGames}, (_, i) => `G${i + 1}`);
                 drawNetRtgChart('netRtgChart', netRtgLabels, teamAbbrev, myNetRtgData, oppAbbrev, oppNetRtgData);
 
-                // Shot Profile Radar Chart Draw
+                // Shot Profile Radar Chart Draw (enlarged with visible ticks)
                 let myShotProfile = getProxyShotProfile(espnId, false);
                 let oppDefProfile = oppId ? getProxyShotProfile(oppId, true) : [20,20,20,20,20];
                 drawShotProfileChart('shotProfileChart', teamAbbrev + ' (Off)', myShotProfile, oppAbbrev + ' (Def)', oppDefProfile);
@@ -1053,7 +1055,11 @@
                             angleLines: { display: true },
                             suggestedMin: 0,
                             suggestedMax: 40,
-                            ticks: { display: false } // Hide ticks for cleaner UI
+                            ticks: { 
+                                display: true,      // Show the percentage values
+                                stepSize: 10,
+                                callback: function(value) { return value + '%'; }
+                            }
                         }
                     },
                     plugins: {
