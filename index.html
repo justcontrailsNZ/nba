@@ -143,6 +143,13 @@
         .miss { color: #c8102e; }
         .push { color: #d48806; }
         .pass { color: #888; }
+
+        /* Individual result markers */
+        .result-marker { font-weight: bold; margin-left: 5px; }
+        .result-marker.hit { color: #28a745; }
+        .result-marker.miss { color: #c8102e; }
+        .result-marker.push { color: #d48806; }
+        .result-marker.pass { color: #888; }
     </style>
 </head>
 <body onload="initGlobalData()">
@@ -647,6 +654,7 @@
                         }
 
                         let evSpreadHtml = "";
+                        let pickSide = null; // we need this later for result
                         if (bookSpreadStr !== 'N/A') {
                             let bookHomeMargin = 0;
                             if (bookSpreadStr.toUpperCase() !== 'EVEN') {
@@ -656,9 +664,59 @@
                                 else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
                             }
                             const modelHomeMargin = hRaw - aRaw; const marginDiff = modelHomeMargin - bookHomeMargin;
-                            if (marginDiff > 2.5) { evSpreadHtml = `<span class="ev-badge positive">+EV ${h.team.abbreviation}</span>`; } 
-                            else if (marginDiff < -2.5) { evSpreadHtml = `<span class="ev-badge positive">+EV ${a.team.abbreviation}</span>`; } 
-                            else { evSpreadHtml = `<span class="ev-badge neutral">PASS</span>`; }
+                            if (marginDiff > 2.5) { 
+                                evSpreadHtml = `<span class="ev-badge positive">+EV ${h.team.abbreviation}</span>`;
+                                pickSide = 'home';
+                            } else if (marginDiff < -2.5) { 
+                                evSpreadHtml = `<span class="ev-badge positive">+EV ${a.team.abbreviation}</span>`;
+                                pickSide = 'away';
+                            } else { 
+                                evSpreadHtml = `<span class="ev-badge neutral">PASS</span>`;
+                                // pass, no pickSide
+                            }
+                        }
+
+                        // Determine result markers for finalized games
+                        let spreadResultHtml = '';
+                        let totalResultHtml = '';
+                        if (isFinal) {
+                            // Spread result
+                            if (bookSpreadStr !== 'N/A' && pickSide) {
+                                let bookHomeMargin = 0;
+                                if (bookSpreadStr.toUpperCase() !== 'EVEN') {
+                                    const parts = bookSpreadStr.split(' ');
+                                    const fav = parts[0];
+                                    const val = parseFloat(parts[1] || 0);
+                                    if (fav === h.team.abbreviation) bookHomeMargin = Math.abs(val);
+                                    else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
+                                }
+                                if (actualHomeMargin === bookHomeMargin) {
+                                    spreadResultHtml = `<span class="result-marker push">⚖️ PUSH</span>`;
+                                } else if ((pickSide === 'home' && actualHomeMargin > bookHomeMargin) || (pickSide === 'away' && actualHomeMargin < bookHomeMargin)) {
+                                    spreadResultHtml = `<span class="result-marker hit">✅ HIT</span>`;
+                                } else {
+                                    spreadResultHtml = `<span class="result-marker miss">❌ MISS</span>`;
+                                }
+                            } else if (bookSpreadStr !== 'N/A' && !pickSide) {
+                                spreadResultHtml = `<span class="result-marker pass">⏸️ PASS</span>`;
+                            }
+
+                            // Total result
+                            if (bookLine > 0) {
+                                let diff = Math.abs(tExp - bookLine);
+                                let isOverPick = tExp > bookLine;
+                                if (diff > 4.0) {
+                                    if (actualTotal === bookLine) {
+                                        totalResultHtml = `<span class="result-marker push">⚖️ PUSH</span>`;
+                                    } else if ((isOverPick && actualTotal > bookLine) || (!isOverPick && actualTotal < bookLine)) {
+                                        totalResultHtml = `<span class="result-marker hit">✅ HIT</span>`;
+                                    } else {
+                                        totalResultHtml = `<span class="result-marker miss">❌ MISS</span>`;
+                                    }
+                                } else {
+                                    totalResultHtml = `<span class="result-marker pass">⏸️ PASS</span>`;
+                                }
+                            }
                         }
 
                         // Format game time in NZ time and show winner for final games
@@ -682,8 +740,14 @@
                                     </div>
                                     ${scoreDisplay}
                                 </div>
-                                <div class="metric-row"><span>Proj Spread: <span class="metric-val">${projSpread}</span></span> <span>Book: ${bookSpreadStr} ${evSpreadHtml}</span></div>
-                                <div class="metric-row"><span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span> <span>Book: ${bookLineStr} ${evTotalHtml}</span></div>
+                                <div class="metric-row">
+                                    <span>Proj Spread: <span class="metric-val">${projSpread}</span></span>
+                                    <span>Book: ${bookSpreadStr} ${evSpreadHtml} ${spreadResultHtml}</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span>
+                                    <span>Book: ${bookLineStr} ${evTotalHtml} ${totalResultHtml}</span>
+                                </div>
                             </div>
                         `;
 
@@ -716,17 +780,17 @@
                                 }
                                 const modelHomeMargin = hRaw - aRaw;
                                 const marginDiff = modelHomeMargin - bookHomeMargin;
-                                let pickSide = null;
+                                let pickSideLocal = null;
 
-                                if (marginDiff > 2.5) pickSide = 'home';
-                                else if (marginDiff < -2.5) pickSide = 'away';
+                                if (marginDiff > 2.5) pickSideLocal = 'home';
+                                else if (marginDiff < -2.5) pickSideLocal = 'away';
                                 else {
                                     spreadPasses++;
                                 }
 
-                                if (pickSide) {
+                                if (pickSideLocal) {
                                     if (actualHomeMargin === bookHomeMargin) spreadPushes++;
-                                    else if ((pickSide === 'home' && actualHomeMargin > bookHomeMargin) || (pickSide === 'away' && actualHomeMargin < bookHomeMargin)) spreadHits++;
+                                    else if ((pickSideLocal === 'home' && actualHomeMargin > bookHomeMargin) || (pickSideLocal === 'away' && actualHomeMargin < bookHomeMargin)) spreadHits++;
                                     else spreadMisses++;
                                 }
                             }
