@@ -633,83 +633,290 @@
                 parseFloat(((ab3/total)*100).toFixed(1))
             ];
         }
+async function fetchGamesAndDrawCharts(espnId, teamAbbrev) {
+    const nextContainer = document.getElementById('next-game-container');
+    const pastContainer = document.getElementById('past-games-container');
+    const oppSection = document.getElementById('opp-past-matches-section');
+    const oppPastContainer = document.getElementById('opp-past-games-container');
+    const hotContainer = document.getElementById('hot-indicator-container');
+    const h2hContainer = document.getElementById('h2h-container');
+    
+    nextContainer.innerHTML = '<div class="loading">Finding next game...</div>';
+    pastContainer.innerHTML = '<div class="loading">Loading match history...</div>';
+    hotContainer.innerHTML = '<div class="loading">Analyzing momentum...</div>';
+    h2hContainer.innerHTML = '<div class="loading">Loading H2H history...</div>';
+    oppSection.style.display = 'none';
 
-        async function fetchGamesAndDrawCharts(espnId, teamAbbrev) {
-            const nextContainer = document.getElementById('next-game-container');
-            const pastContainer = document.getElementById('past-games-container');
-            const oppSection = document.getElementById('opp-past-matches-section');
-            const oppPastContainer = document.getElementById('opp-past-games-container');
-            const hotContainer = document.getElementById('hot-indicator-container');
-            const h2hContainer = document.getElementById('h2h-container');
+    // Draw Pace Metrics Block
+    const tStats = window.teamAnalyticsStore[espnId];
+    if (tStats) {
+        document.getElementById('pace-metrics-container').innerHTML = `
+            <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
+                <span>Est. Pace (Poss/48)</span> <span style="font-weight:bold; color:#1d428a;">${tStats.estPace.toFixed(1)}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
+                <span>Offensive Rtg</span> <span style="font-weight:bold; color:#1d428a;">${tStats.offRtg.toFixed(1)}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
+                <span>Defensive Rtg</span> <span style="font-weight:bold; color:#c8102e;">${tStats.defRtg.toFixed(1)}</span>
+            </div>
+        `;
+    }
+
+    try {
+        const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule`);
+        const scheduleData = await scheduleRes.json();
+
+        const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
+        const upcomingGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === false);
+
+        const last5Games = completedGames.slice(-5);
+        const last3GamesForCards = completedGames.slice(-3).reverse();
+        const nextGame = upcomingGames.length > 0 ? upcomingGames[0] : null;
+
+        let winCount = 0; let totalPts = 0; let validGames = 0;
+        let myDataPts = []; let myWL = []; let perfLabels = [];
+        
+        // Quarter Splits Arrays
+        let qScored = [0, 0, 0, 0];
+        let qAllowed = [0, 0, 0, 0];
+        let qGamesCount = 0;
+
+        // Helper to get linescores from a game (fetch summary if needed)
+        async function getGameQuarterScores(game) {
+            const comp = game.competitions[0];
+            const me = comp.competitors.find(c => String(c.team.id) === String(espnId));
+            const opp = comp.competitors.find(c => String(c.team.id) !== String(espnId));
             
-            nextContainer.innerHTML = '<div class="loading">Finding next game...</div>';
-            pastContainer.innerHTML = '<div class="loading">Loading match history...</div>';
-            hotContainer.innerHTML = '<div class="loading">Analyzing momentum...</div>';
-            h2hContainer.innerHTML = '<div class="loading">Loading H2H history...</div>';
-            oppSection.style.display = 'none';
+            // If linescores already present, use them
+            if (me && opp && me.linescores && opp.linescores) {
+                return { meLinescores: me.linescores, oppLinescores: opp.linescores };
+            }
+            
+            // Otherwise fetch summary for this game
+            try {
+                const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${game.id}`);
+                const summaryData = await summaryRes.json();
+                const summaryComp = summaryData.header.competitions[0];
+                const summaryMe = summaryComp.competitors.find(c => String(c.team.id) === String(espnId));
+                const summaryOpp = summaryComp.competitors.find(c => String(c.team.id) !== String(espnId));
+                if (summaryMe && summaryOpp && summaryMe.linescores && summaryOpp.linescores) {
+                    return { meLinescores: summaryMe.linescores, oppLinescores: summaryOpp.linescores };
+                }
+            } catch (e) {
+                console.warn(`Could not fetch summary for game ${game.id}`);
+            }
+            return null;
+        }
 
-            // Draw Pace Metrics Block
-            const tStats = window.teamAnalyticsStore[espnId];
-            if (tStats) {
-                document.getElementById('pace-metrics-container').innerHTML = `
-                    <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
-                        <span>Est. Pace (Poss/48)</span> <span style="font-weight:bold; color:#1d428a;">${tStats.estPace.toFixed(1)}</span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
-                        <span>Offensive Rtg</span> <span style="font-weight:bold; color:#1d428a;">${tStats.offRtg.toFixed(1)}</span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #eee; padding-bottom:5px;">
-                        <span>Defensive Rtg</span> <span style="font-weight:bold; color:#c8102e;">${tStats.defRtg.toFixed(1)}</span>
-                    </div>
-                `;
+        // Process each of the last 5 games for quarter data
+        const quarterPromises = last5Games.map(game => getGameQuarterScores(game));
+        const quarterResults = await Promise.all(quarterPromises);
+
+        last5Games.forEach((game, idx) => {
+            const comp = game.competitions[0];
+            const dateStr = new Date(comp.date).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland', month: 'numeric', day: 'numeric' });
+            perfLabels.push(dateStr);
+            
+            const me = comp.competitors.find(c => String(c.team.id) === String(espnId));
+            const opp = comp.competitors.find(c => String(c.team.id) !== String(espnId));
+            
+            if (me && me.score) {
+                const pts = parseInt(me.score.value);
+                if (me.winner) winCount++;
+                totalPts += pts; validGames++; myDataPts.push(pts); myWL.push(me.winner ? 'W' : 'L');
             }
 
+            // Use quarter results from our promise
+            const qData = quarterResults[idx];
+            if (qData) {
+                for (let i = 0; i < 4; i++) {
+                    if (qData.meLinescores[i]) qScored[i] += parseInt(qData.meLinescores[i].value || 0);
+                    if (qData.oppLinescores[i]) qAllowed[i] += parseInt(qData.oppLinescores[i].value || 0);
+                }
+                qGamesCount++;
+            }
+        });
+
+        // Draw Quarter Splits Chart (with fallback if no data)
+        if (qGamesCount > 0) {
+            let avgQScored = qScored.map(v => parseFloat((v / qGamesCount).toFixed(1)));
+            let avgQAllowed = qAllowed.map(v => parseFloat((v / qGamesCount).toFixed(1)));
+            drawQuarterSplitsChart('quarterSplitsChart', avgQScored, avgQAllowed);
+        } else {
+            // Show placeholder message on chart
+            const ctx = document.getElementById('quarterSplitsChart').getContext('2d');
+            if (quarterSplitsChartInstance) quarterSplitsChartInstance.destroy();
+            ctx.font = '12px sans-serif';
+            ctx.fillStyle = '#999';
+            ctx.textAlign = 'center';
+            ctx.fillText('No quarter data available', 150, 90);
+        }
+
+        // NET RATING DATA CALCULATION FOR MAIN TEAM (LAST 10)
+        let myNetRtgData = [];
+        let myPace = tStats?.estPace || 100;
+        const myLast10 = completedGames.slice(-10);
+        myLast10.forEach(game => {
+            const comp = game.competitions[0];
+            const me = comp.competitors.find(c => String(c.team.id) === String(espnId));
+            const opp = comp.competitors.find(c => String(c.team.id) !== String(espnId));
+            if (me && opp && me.score && opp.score) {
+                const diff = parseInt(me.score.value) - parseInt(opp.score.value);
+                const net = diff / (myPace / 100);
+                myNetRtgData.push(parseFloat(net.toFixed(1)));
+            }
+        });
+
+        let oppId = null; let oppAbbrev = "Opponent"; let oppDataPts = []; let oppWL = [];
+        let oppWinCount = 0; let oppTotalPts = 0; let oppValidGames = 0;
+        let oppCompleted = [];
+        let oppNetRtgData = [];
+
+        if (nextGame) {
+            const comp = nextGame.competitions[0];
+            const oppTeam = comp.competitors.find(c => String(c.team.id) !== String(espnId));
+            if (oppTeam) { oppId = oppTeam.team.id; oppAbbrev = oppTeam.team.abbreviation || "OPP"; }
+        }
+
+        if (oppId) {
             try {
-                const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule`);
-                const scheduleData = await scheduleRes.json();
-
-                const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
-                const upcomingGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === false);
-
-                const last5Games = completedGames.slice(-5);
-                const last3GamesForCards = completedGames.slice(-3).reverse();
-                const nextGame = upcomingGames.length > 0 ? upcomingGames[0] : null;
-
-                let winCount = 0; let totalPts = 0; let validGames = 0;
-                let myDataPts = []; let myWL = []; let perfLabels = [];
+                const oppRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${oppId}/schedule`);
+                const oppData = await oppRes.json();
+                oppCompleted = oppData.events.filter(e => e.competitions[0].status.type.completed === true);
+                const oppLast5 = oppCompleted.slice(-5);
                 
-                // Quarter Splits Arrays
-                let qScored = [0, 0, 0, 0];
-                let qAllowed = [0, 0, 0, 0];
-                let qGamesCount = 0;
-
-                last5Games.forEach((game) => {
-                    const comp = game.competitions[0];
-                    const dateStr = new Date(comp.date).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland', month: 'numeric', day: 'numeric' });
-                    perfLabels.push(dateStr);
-                    
-                    const me = comp.competitors.find(c => String(c.team.id) === String(espnId));
-                    const opp = comp.competitors.find(c => String(c.team.id) !== String(espnId));
-                    
-                    if (me && me.score) {
-                        const pts = parseInt(me.score.value);
-                        if (me.winner) winCount++;
-                        totalPts += pts; validGames++; myDataPts.push(pts); myWL.push(me.winner ? 'W' : 'L');
-                    }
-                    
-                    if (me && opp && me.linescores && opp.linescores) {
-                        for(let i=0; i<4; i++) { // Extract regular 4 quarters
-                            if(me.linescores[i]) qScored[i] += parseInt(me.linescores[i].value || 0);
-                            if(opp.linescores[i]) qAllowed[i] += parseInt(opp.linescores[i].value || 0);
-                        }
-                        qGamesCount++;
+                oppLast5.forEach(game => {
+                    const targetOpp = game.competitions[0].competitors.find(c => String(c.team.id) === String(oppId));
+                    if (targetOpp && targetOpp.score) {
+                        const pts = parseInt(targetOpp.score.value);
+                        oppDataPts.push(pts); oppWL.push(targetOpp.winner ? 'W' : 'L');
+                        oppTotalPts += pts; oppValidGames++;
+                        if (targetOpp.winner) oppWinCount++;
                     }
                 });
 
-                // Draw Quarter Splits Chart
-                let avgQScored = qScored.map(v => qGamesCount > 0 ? parseFloat((v/qGamesCount).toFixed(1)) : 0);
-                let avgQAllowed = qAllowed.map(v => qGamesCount > 0 ? parseFloat((v/qGamesCount).toFixed(1)) : 0);
-                drawQuarterSplitsChart('quarterSplitsChart', avgQScored, avgQAllowed);
+                // NET RATING DATA CALCULATION FOR OPPONENT (LAST 10)
+                let oppPace = window.teamAnalyticsStore[oppId]?.estPace || 100;
+                const oppLast10 = oppCompleted.slice(-10);
+                oppLast10.forEach(game => {
+                    const comp = game.competitions[0];
+                    const me = comp.competitors.find(c => String(c.team.id) === String(oppId));
+                    const opponentOfOpp = comp.competitors.find(c => String(c.team.id) !== String(oppId));
+                    if (me && opponentOfOpp && me.score && opponentOfOpp.score) {
+                        const diff = parseInt(me.score.value) - parseInt(opponentOfOpp.score.value);
+                        const net = diff / (oppPace / 100);
+                        oppNetRtgData.push(parseFloat(net.toFixed(1)));
+                    }
+                });
+            } catch (e) { console.warn("Could not fetch opponent chart data"); }
+        }
+
+        drawChart('perfChart', perfLabels, teamAbbrev, myDataPts, myWL, oppAbbrev, oppDataPts, oppWL);
+        
+        // Net Rating Trend Chart Draw
+        let maxGames = Math.max(myNetRtgData.length, oppNetRtgData.length);
+        let netRtgLabels = Array.from({length: maxGames}, (_, i) => `G${i + 1}`);
+        drawNetRtgChart('netRtgChart', netRtgLabels, teamAbbrev, myNetRtgData, oppAbbrev, oppNetRtgData);
+
+        // Shot Profile Radar Chart Draw
+        let myShotProfile = getProxyShotProfile(espnId, false);
+        let oppDefProfile = oppId ? getProxyShotProfile(oppId, true) : [20,20,20,20,20];
+        drawShotProfileChart('shotProfileChart', teamAbbrev + ' (Off)', myShotProfile, oppAbbrev + ' (Def)', oppDefProfile);
+
+        let h2hGames = [];
+        let lastH2HGameId = null;
+
+        if (oppId) {
+            let currentSeasonH2H = completedGames.filter(e => e.competitions[0].competitors.some(c => String(c.team.id) === String(oppId)));
+            
+            if (currentSeasonH2H.length < 5) {
+                try {
+                    const prevRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${espnId}/schedule?season=2023`);
+                    const prevData = await prevRes.json();
+                    const prevCompleted = prevData.events.filter(e => e.competitions[0].status.type.completed === true);
+                    const prevH2H = prevCompleted.filter(e => e.competitions[0].competitors.some(c => String(c.team.id) === String(oppId)));
+                    h2hGames = [...prevH2H, ...currentSeasonH2H].slice(-5);
+                } catch(e) { h2hGames = currentSeasonH2H; }
+            } else { h2hGames = currentSeasonH2H.slice(-5); }
+        }
+
+        if (h2hGames.length > 0) {
+            // Get the ID of the most recent H2H game for the card
+            lastH2HGameId = h2hGames[h2hGames.length - 1].id;
+
+            let h2hLabels = []; let h2hMyData = []; let h2hMyWL = []; let h2hOppData = []; let h2hOppWL = [];
+            h2hGames.forEach(game => {
+                const comp = game.competitions[0];
+                // NZ Time conversion
+                h2hLabels.push(new Date(comp.date).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland', month: 'numeric', day: 'numeric' }));
+                const me = comp.competitors.find(c => String(c.team.id) === String(espnId));
+                const opp = comp.competitors.find(c => String(c.team.id) === String(oppId));
+                if (me && opp && me.score && opp.score) {
+                    h2hMyData.push(parseInt(me.score.value)); h2hMyWL.push(me.winner ? 'W' : 'L');
+                    h2hOppData.push(parseInt(opp.score.value)); h2hOppWL.push(opp.winner ? 'W' : 'L');
+                }
+            });
+            h2hContainer.innerHTML = '<canvas id="h2hChart"></canvas>';
+            drawChart('h2hChart', h2hLabels, teamAbbrev, h2hMyData, h2hMyWL, oppAbbrev, h2hOppData, h2hOppWL);
+        } else {
+            h2hContainer.innerHTML = '<p style="text-align:center; color:#777; font-size:13px; margin-top:50px;">No recent Head-to-Head data available.</p>';
+        }
+
+        let myTrend = getTrendStatus(winCount, validGames);
+        let oppTrend = getTrendStatus(oppWinCount, oppValidGames);
+
+        hotContainer.innerHTML = `
+            <div class="panel-box" style="padding: 15px; justify-content: space-evenly;">
+                <div style="font-size:13px; font-weight:bold; text-align:center; color:#555; margin-bottom:15px; border-bottom:2px solid #eee; padding-bottom:5px;">RECENT FORM (L5 MATCHES)</div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex:1; text-align:center; border-right: 1px dashed #ccc; padding: 0 5px;">
+                        <div style="font-size:14px; font-weight:bold; color:#1d428a; margin-bottom:8px;">${teamAbbrev}</div>
+                        <div style="display:inline-block; padding: 4px 8px; border-radius: 4px; font-weight:bold; font-size:11px; color:#fff; background-color:${myTrend.color}; margin-bottom:8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${myTrend.icon} ${myTrend.text}</div>
+                        <div style="font-size:13px; color:#333; margin-bottom:2px;"><b>${winCount}W - ${validGames - winCount}L</b></div>
+                        <div style="font-size:11px; color:#777;">Avg Pts: ${validGames > 0 ? Math.round(totalPts / validGames) : "--"}</div>
+                    </div>
+                    <div style="font-size: 14px; font-weight: bold; color: #ccc; padding: 0 10px;">VS</div>
+                    <div style="flex:1; text-align:center; padding: 0 5px;">
+                        <div style="font-size:14px; font-weight:bold; color:#555; margin-bottom:8px;">${oppAbbrev}</div>
+                        <div style="display:inline-block; padding: 4px 8px; border-radius: 4px; font-weight:bold; font-size:11px; color:#fff; background-color:${oppTrend.color}; margin-bottom:8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">${oppTrend.icon} ${oppTrend.text}</div>
+                        <div style="font-size:13px; color:#333; margin-bottom:2px;"><b>${oppWinCount}W - ${oppValidGames - oppWinCount}L</b></div>
+                        <div style="font-size:11px; color:#777;">Avg Pts: ${oppValidGames > 0 ? Math.round(oppTotalPts / oppValidGames) : "--"}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Fetch Last H2H Details to inject into the upcoming game card
+        let lastH2HHtml = '';
+        if (nextGame && lastH2HGameId) {
+            lastH2HHtml = await buildLastH2HCard(lastH2HGameId);
+        } else if (nextGame && !lastH2HGameId) {
+            lastH2HHtml = `<div style="margin-top:15px; border-top: 2px dashed #ccc; padding-top: 10px; text-align:center; font-size:11px; color:#777;">No recent H2H matchup found between these teams.</div>`;
+        }
+
+        if (nextGame) { nextContainer.innerHTML = await buildGameCard(nextGame.id, true, lastH2HHtml); } 
+        else { nextContainer.innerHTML = '<div class="panel-box"><p style="text-align:center; color:#777;">No upcoming games scheduled.</p></div>'; }
+
+        // MAIN TEAM: Last 3 Games
+        if (last3GamesForCards.length === 0) { pastContainer.innerHTML = '<p>No completed games found.</p>'; } 
+        else {
+            const pastHTMLs = await Promise.all(last3GamesForCards.map(g => buildGameCard(g.id, false)));
+            pastContainer.innerHTML = pastHTMLs.join('');
+        }
+
+        // OPPONENT: Last 3 Games
+        if (oppId && oppCompleted.length > 0) {
+            oppSection.style.display = 'block';
+            document.getElementById('opp-team-title').innerText = oppAbbrev;
+            const oppLast3 = oppCompleted.slice(-3).reverse();
+            const oppPastHTMLs = await Promise.all(oppLast3.map(g => buildGameCard(g.id, false)));
+            oppPastContainer.innerHTML = oppPastHTMLs.join('');
+        }
+
+    } catch (error) { console.error(error); nextContainer.innerHTML = '<p style="color:red;">Error loading games.</p>'; pastContainer.innerHTML = ''; }
+}
+   
 
                 // NET RATING DATA CALCULATION FOR MAIN TEAM (LAST 10)
                 let myNetRtgData = [];
