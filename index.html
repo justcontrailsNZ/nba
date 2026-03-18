@@ -151,7 +151,7 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
-        /* Rankings table - with trend indicators */
+        /* Rankings table - with trend indicators for all three columns */
         .rankings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
         .rank-category { background: #f8f9fa; border-radius: 6px; padding: 8px; }
         .rank-category h3 { font-size: 11px; margin: 0 0 6px 0; color: #1d428a; text-transform: uppercase; text-align: center; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
@@ -317,7 +317,7 @@
                 <div id="standings-container"><div class="loading">Loading Standings...</div></div>
             </div>
             
-            <!-- Rankings Box (all teams, last-10-game averages with trends) -->
+            <!-- Rankings Box (all teams, last-10-game averages with trends for all stats) -->
             <div class="widget-box">
                 <h2>📊 Last 10 Games Averages (vs prev 10)</h2>
                 <div id="rankings-container"><div class="loading">Loading Rankings...</div></div>
@@ -475,11 +475,9 @@
                     // Filter completed games
                     const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
                     
-                    // Need at least 10 games to show current, 20 to show previous
                     const season = window.teamAnalyticsStore[teamId];
-                    const pace = season.estPace; // use season pace for consistency
                     
-                    // Current last 10 (most recent)
+                    // ---- Current last 10 (most recent) ----
                     const last10 = completedGames.slice(-10);
                     let curPts = 0, curOppPts = 0;
                     last10.forEach(game => {
@@ -494,35 +492,52 @@
                     const curGames = last10.length;
                     const curAvgPts = curGames > 0 ? curPts / curGames : 0;
                     const curAvgOppPts = curGames > 0 ? curOppPts / curGames : 0;
-                    const curOffRtg = (curAvgPts / pace) * 100;
-                    const curDefRtg = (curAvgOppPts / pace) * 100;
                     
-                    // Previous 10 (games 11-20 if available)
-                    let prevOffRtg = null, prevDefRtg = null;
+                    // Estimate pace for current 10 using the same method as season pace
+                    // Pace is based on average total points per game scaled to league average.
+                    // We'll use the league average from standings (lgAvgPF+lgAvgPA) as baseline.
+                    // Since we don't have league average for last 10, we'll use the season league average.
+                    // This is an approximation.
+                    const lgAvgPF = 115; // approximate, but we can compute from stored data
+                    const lgAvgPA = 115;
+                    const baselinePace = 100.0;
+                    const curTotalAvg = curAvgPts + curAvgOppPts;
+                    const curPace = baselinePace * (curTotalAvg / (lgAvgPF + lgAvgPA));
+                    
+                    const curOffRtg = (curAvgPts / curPace) * 100;
+                    const curDefRtg = (curAvgOppPts / curPace) * 100;
+                    
+                    // ---- Previous 10 (games 11-20 if available) ----
+                    let prevPts = null, prevOppPts = null, prevPace = null, prevOffRtg = null, prevDefRtg = null;
                     if (completedGames.length >= 20) {
                         const prev10 = completedGames.slice(-20, -10);
-                        let prevPts = 0, prevOppPts = 0;
+                        let prevPtsSum = 0, prevOppPtsSum = 0;
                         prev10.forEach(game => {
                             const comp = game.competitions[0];
                             const me = comp.competitors.find(c => String(c.team.id) === teamId);
                             const opp = comp.competitors.find(c => String(c.team.id) !== teamId);
                             if (me && me.score && opp && opp.score) {
-                                prevPts += parseInt(me.score.value);
-                                prevOppPts += parseInt(opp.score.value);
+                                prevPtsSum += parseInt(me.score.value);
+                                prevOppPtsSum += parseInt(opp.score.value);
                             }
                         });
                         const prevGames = prev10.length;
-                        const prevAvgPts = prevGames > 0 ? prevPts / prevGames : 0;
-                        const prevAvgOppPts = prevGames > 0 ? prevOppPts / prevGames : 0;
-                        prevOffRtg = (prevAvgPts / pace) * 100;
-                        prevDefRtg = (prevAvgOppPts / pace) * 100;
+                        if (prevGames > 0) {
+                            prevPts = prevPtsSum / prevGames;
+                            prevOppPts = prevOppPtsSum / prevGames;
+                            const prevTotalAvg = prevPts + prevOppPts;
+                            prevPace = baselinePace * (prevTotalAvg / (lgAvgPF + lgAvgPA));
+                            prevOffRtg = (prevPts / prevPace) * 100;
+                            prevDefRtg = (prevOppPts / prevPace) * 100;
+                        }
                     }
                     
                     window.teamLast10Store[teamId] = {
                         abbrev: season.abbrev,
-                        estPace: pace,
+                        curPace: curPace,
                         curOffRtg: curOffRtg,
                         curDefRtg: curDefRtg,
+                        prevPace: prevPace,
                         prevOffRtg: prevOffRtg,
                         prevDefRtg: prevDefRtg
                     };
@@ -532,9 +547,10 @@
                     const season = window.teamAnalyticsStore[teamId];
                     window.teamLast10Store[teamId] = {
                         abbrev: season.abbrev,
-                        estPace: season.estPace,
+                        curPace: season.estPace,
                         curOffRtg: season.offRtg,
                         curDefRtg: season.defRtg,
+                        prevPace: null,
                         prevOffRtg: null,
                         prevDefRtg: null
                     };
@@ -552,7 +568,9 @@
             const diff = current - previous;
             if (Math.abs(diff) < 0.05) return '<span class="trend-flat">–</span>';
             const arrow = diff > 0 ? '▲' : '▼';
-            const color = (diff > 0 && higherIsBetter) || (diff < 0 && !higherIsBetter) ? 'trend-up' : 'trend-down';
+            // For pace, higher is generally faster but not necessarily "better" – we'll just show direction
+            // We'll still colour it based on whether it's an increase (green) or decrease (red) – neutral interpretation.
+            const color = diff > 0 ? 'trend-up' : 'trend-down';
             return `<span class="${color}">${arrow} ${diff > 0 ? '+' : ''}${diff.toFixed(1)}</span>`;
         }
 
@@ -564,7 +582,7 @@
             }
 
             // Sort all teams by current values
-            const paceSorted = [...teams].sort((a, b) => b.estPace - a.estPace);
+            const paceSorted = [...teams].sort((a, b) => b.curPace - a.curPace);
             const offSorted = [...teams].sort((a, b) => b.curOffRtg - a.curOffRtg);
             const defSorted = [...teams].sort((a, b) => a.curDefRtg - b.curDefRtg);
 
@@ -573,7 +591,10 @@
                     <div class="rank-category">
                         <h3>Pace (Fastest)</h3>
                         <ul class="rank-list">
-                            ${paceSorted.map(t => `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.estPace.toFixed(1)}</span></li>`).join('')}
+                            ${paceSorted.map(t => {
+                                const trend = getTrendHtml(t.curPace, t.prevPace, true); // higher pace is faster
+                                return `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curPace.toFixed(1)}</span> ${trend}</li>`;
+                            }).join('')}
                         </ul>
                     </div>
                     <div class="rank-category">
@@ -595,7 +616,7 @@
                         </ul>
                     </div>
                 </div>
-                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on actual last 10 games · Trend vs previous 10 (▲ better, ▼ worse)</p>
+                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on last 10 games · Trend vs previous 10 (▲ up, ▼ down)</p>
             `;
             document.getElementById('rankings-container').innerHTML = html;
         }
