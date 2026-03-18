@@ -106,6 +106,8 @@
         .standings-table th { padding: 4px 2px; color: #555; background-color: #f1f3f5; border-bottom: 2px solid #ddd; text-align: center; }
         .standings-table td { padding: 4px 2px; border-bottom: 1px solid #eee; text-align: center; white-space: nowrap;}
         .standings-table th:nth-child(2), .standings-table td:nth-child(2) { text-align: left; }
+        /* Highlight for selected team and opponent */
+        .highlighted-team { background-color: #e6f3ff !important; }
 
         .leaders-list { margin: 0; padding: 0; list-style-type: none; font-size: 12px; color: #333; }
         .leaders-list li { display: flex; justify-content: space-between; padding: 6px 5px; border-bottom: 1px dashed #e1e4e8; align-items: center; }
@@ -164,6 +166,8 @@
         .trend-down { color: #c8102e; font-size: 9px; margin-left: 2px; }
         .trend-flat { color: #888; font-size: 9px; margin-left: 2px; }
         .trend-num { font-size: 8px; margin-left: 1px; }
+        /* Highlight for selected team and opponent in rankings */
+        .highlighted-team .rank-abbr { font-weight: bold; background-color: #e6f3ff; }
     </style>
 </head>
 <body onload="initGlobalData()">
@@ -347,6 +351,10 @@
         window.teamAnalyticsStore = {};      // season-long estimates (from standings)
         window.teamLast10Store = {};         // actual last-10-game averages with trends
         
+        // Store current selection for highlighting
+        window.currentTeamId = null;
+        window.currentOppId = null;
+        
         let currentSlateDate = new Date();
         currentSlateDate.setHours(currentSlateDate.getHours() - 5); 
 
@@ -436,7 +444,7 @@
                                 abbrev: abbrev,
                                 teamId: team.team.id
                             };
-                            tHtml += `<tr><td><b>${seed}</b></td><td><b>${abbrev}</b></td><td>${wins}-${losses}</td><td>${gb}</td><td>${l10}</td></tr>`;
+                            tHtml += `<tr data-team-id="${team.team.id}"><td><b>${seed}</b></td><td><b>${abbrev}</b></td><td>${wins}-${losses}</td><td>${gb}</td><td>${l10}</td></tr>`;
                         });
                         return tHtml + `</table></div>`;
                     };
@@ -586,39 +594,81 @@
             const offSorted = [...teams].sort((a, b) => b.curOffRtg - a.curOffRtg);
             const defSorted = [...teams].sort((a, b) => a.curDefRtg - b.curDefRtg);
 
+            // Build HTML with data-team-id attributes
+            const paceList = paceSorted.map(t => {
+                const teamId = Object.keys(window.teamLast10Store).find(id => window.teamLast10Store[id].abbrev === t.abbrev);
+                return `<li data-team-id="${teamId}"><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curPace.toFixed(1)}</span> ${getTrendHtml(t.curPace, t.prevPace, true)}</li>`;
+            }).join('');
+
+            const offList = offSorted.map(t => {
+                const teamId = Object.keys(window.teamLast10Store).find(id => window.teamLast10Store[id].abbrev === t.abbrev);
+                return `<li data-team-id="${teamId}"><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curOffRtg.toFixed(1)}</span> ${getTrendHtml(t.curOffRtg, t.prevOffRtg, true)}</li>`;
+            }).join('');
+
+            const defList = defSorted.map(t => {
+                const teamId = Object.keys(window.teamLast10Store).find(id => window.teamLast10Store[id].abbrev === t.abbrev);
+                return `<li data-team-id="${teamId}"><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curDefRtg.toFixed(1)}</span> ${getTrendHtml(t.curDefRtg, t.prevDefRtg, false)}</li>`;
+            }).join('');
+
             const html = `
                 <div class="rankings-grid">
                     <div class="rank-category">
                         <h3>Pace (Fastest)</h3>
                         <ul class="rank-list">
-                            ${paceSorted.map(t => {
-                                const trend = getTrendHtml(t.curPace, t.prevPace, true); // higher pace is faster
-                                return `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curPace.toFixed(1)}</span> ${trend}</li>`;
-                            }).join('')}
+                            ${paceList}
                         </ul>
                     </div>
                     <div class="rank-category">
                         <h3>Offensive Rating</h3>
                         <ul class="rank-list">
-                            ${offSorted.map(t => {
-                                const trend = getTrendHtml(t.curOffRtg, t.prevOffRtg, true);
-                                return `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curOffRtg.toFixed(1)}</span> ${trend}</li>`;
-                            }).join('')}
+                            ${offList}
                         </ul>
                     </div>
                     <div class="rank-category">
                         <h3>Defensive Rating</h3>
                         <ul class="rank-list">
-                            ${defSorted.map(t => {
-                                const trend = getTrendHtml(t.curDefRtg, t.prevDefRtg, false);
-                                return `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curDefRtg.toFixed(1)}</span> ${trend}</li>`;
-                            }).join('')}
+                            ${defList}
                         </ul>
                     </div>
                 </div>
                 <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on last 10 games · Trend vs previous 10 (▲ up, ▼ down)</p>
             `;
             document.getElementById('rankings-container').innerHTML = html;
+
+            // After building, apply highlighting if a team is selected
+            if (window.currentTeamId) {
+                highlightTeamAndOpponent(window.currentTeamId, window.currentOppId);
+            }
+        }
+
+        // Highlight function
+        function highlightTeamAndOpponent(teamId, oppId) {
+            // Remove previous highlights from standings and rankings
+            document.querySelectorAll('#standings-container tr.highlighted-team, #rankings-container li.highlighted-team').forEach(el => {
+                el.classList.remove('highlighted-team');
+            });
+
+            // Add highlight to standings rows
+            if (teamId) {
+                const teamRow = document.querySelector(`#standings-container tr[data-team-id="${teamId}"]`);
+                if (teamRow) teamRow.classList.add('highlighted-team');
+            }
+            if (oppId) {
+                const oppRow = document.querySelector(`#standings-container tr[data-team-id="${oppId}"]`);
+                if (oppRow) oppRow.classList.add('highlighted-team');
+            }
+
+            // Add highlight to rankings list items
+            if (teamId) {
+                document.querySelectorAll(`#rankings-container li[data-team-id="${teamId}"]`).forEach(el => {
+                    el.classList.add('highlighted-team');
+                });
+            }
+            if (oppId) {
+                document.querySelectorAll(`#rankings-container li[data-team-id="${oppId}"]`).forEach(el => {
+                    el.classList.add('highlighted-team');
+                });
+            }
         }
 
         function changeSlateDate(offset) {
@@ -1252,7 +1302,10 @@
                 if (nextGame) {
                     const comp = nextGame.competitions[0];
                     const oppTeam = comp.competitors.find(c => String(c.team.id) !== String(espnId));
-                    if (oppTeam) { oppId = oppTeam.team.id; oppAbbrev = oppTeam.team.abbreviation || "OPP"; }
+                    if (oppTeam) { 
+                        oppId = oppTeam.team.id; 
+                        oppAbbrev = oppTeam.team.abbreviation || "OPP"; 
+                    }
                 }
 
                 if (oppId) {
@@ -1464,6 +1517,12 @@
                 } else {
                     oppMetricsRow.style.display = 'none';
                 }
+
+                // Store current selection for highlighting
+                window.currentTeamId = espnId;
+                window.currentOppId = oppId;
+                // Apply highlighting to standings and rankings
+                highlightTeamAndOpponent(window.currentTeamId, window.currentOppId);
 
             } catch (error) { console.error(error); nextContainer.innerHTML = '<p style="color:red;">Error loading games.</p>'; pastContainer.innerHTML = ''; }
         }
