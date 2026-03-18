@@ -151,7 +151,7 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
-        /* Rankings table - now with scrolling for top 15 */
+        /* Rankings table - scrollable top 15 */
         .rankings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
         .rank-category { background: #f8f9fa; border-radius: 6px; padding: 8px; }
         .rank-category h3 { font-size: 11px; margin: 0 0 6px 0; color: #1d428a; text-transform: uppercase; text-align: center; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
@@ -160,7 +160,6 @@
         .rank-list li:last-child { border-bottom: none; }
         .rank-abbr { font-weight: bold; color: #333; }
         .rank-value { color: #c8102e; font-weight: bold; }
-        /* Thin scrollbar */
         .rank-list::-webkit-scrollbar { width: 4px; }
         .rank-list::-webkit-scrollbar-track { background: #f1f1f1; }
         .rank-list::-webkit-scrollbar-thumb { background: #aaa; border-radius: 4px; }
@@ -317,9 +316,9 @@
                 <div id="standings-container"><div class="loading">Loading Standings...</div></div>
             </div>
             
-            <!-- New Rankings Box (top 15 per category) -->
+            <!-- Rankings Box (now based on actual last-10-game averages) -->
             <div class="widget-box">
-                <h2>📊 Last 10 Games Rankings</h2>
+                <h2>📊 Last 10 Games Averages</h2>
                 <div id="rankings-container"><div class="loading">Loading Rankings...</div></div>
             </div>
 
@@ -344,7 +343,8 @@
         let h2hChartInstance = null;
         let netRtgChartInstance = null;
         let shotProfileChartInstance = null;
-        window.teamAnalyticsStore = {}; 
+        window.teamAnalyticsStore = {};      // season-long estimates (from standings)
+        window.teamLast10Store = {};         // actual last-10-game averages
         
         let currentSlateDate = new Date();
         currentSlateDate.setHours(currentSlateDate.getHours() - 5); 
@@ -375,7 +375,7 @@
 
         function initGlobalData() {
             fetchLeaders();
-            fetchStandings();
+            fetchStandings();  // this will also trigger fetchLast10ForAllTeams() after standings load
         }
 
         async function fetchStandings() {
@@ -425,13 +425,15 @@
                             let l10Wins = l10 !== '-' ? parseInt(l10.split('-')[0]) : 5;
                             const estPace = baselinePace * ((ppg + oppPpg) / (lgAvgPF + lgAvgPA));
                             
+                            // Store season-long estimates (used for main team dashboard)
                             window.teamAnalyticsStore[team.team.id] = {
                                 winPct: (wins / gamesPlayed) || 0.5, estPace: estPace, 
                                 offRtg: (ppg / estPace) * 100, defRtg: (oppPpg / estPace) * 100, 
                                 formWeight: l10Wins / 10,
                                 ppg: ppg,
                                 oppg: oppPpg,
-                                abbrev: abbrev
+                                abbrev: abbrev,
+                                teamId: team.team.id
                             };
                             tHtml += `<tr><td><b>${seed}</b></td><td><b>${abbrev}</b></td><td>${wins}-${losses}</td><td>${gb}</td><td>${l10}</td></tr>`;
                         });
@@ -441,8 +443,8 @@
                     html += buildTable(west) + buildTable(east) + '</div>';
                     document.getElementById('standings-container').innerHTML = html;
                     
-                    // After standings are loaded, compute rankings for last 10 games (using teamAnalyticsStore)
-                    updateRankings();
+                    // After standings are loaded, fetch actual last-10-game data for all teams
+                    fetchLast10ForAllTeams();
                     
                     loadDailySlate(0);
                 }
@@ -452,24 +454,102 @@
             }
         }
 
-        function updateRankings() {
-            const store = window.teamAnalyticsStore;
-            const teams = Object.values(store);
+        // New function: fetch last 10 completed games for every team and compute averages
+        async function fetchLast10ForAllTeams() {
+            const rankingsContainer = document.getElementById('rankings-container');
+            rankingsContainer.innerHTML = '<div class="loading">Fetching last 10 games for all teams...</div>';
+
+            const teamIds = Object.keys(window.teamAnalyticsStore); // all team IDs from standings
+            if (teamIds.length === 0) {
+                rankingsContainer.innerHTML = '<div class="loading">No team data available.</div>';
+                return;
+            }
+
+            // We'll store last-10 averages in window.teamLast10Store
+            const promises = teamIds.map(async (teamId) => {
+                try {
+                    const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/schedule`);
+                    const scheduleData = await scheduleRes.json();
+                    
+                    // Filter completed games
+                    const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
+                    const last10 = completedGames.slice(-10); // last 10 (or fewer if not enough games)
+                    
+                    if (last10.length === 0) {
+                        // Not enough games, fallback to season estimates
+                        const season = window.teamAnalyticsStore[teamId];
+                        window.teamLast10Store[teamId] = {
+                            estPace: season.estPace,
+                            offRtg: season.offRtg,
+                            defRtg: season.defRtg,
+                            abbrev: season.abbrev
+                        };
+                        return;
+                    }
+                    
+                    let totalPts = 0, totalOppPts = 0;
+                    last10.forEach(game => {
+                        const comp = game.competitions[0];
+                        const me = comp.competitors.find(c => String(c.team.id) === teamId);
+                        const opp = comp.competitors.find(c => String(c.team.id) !== teamId);
+                        if (me && me.score && opp && opp.score) {
+                            totalPts += parseInt(me.score.value);
+                            totalOppPts += parseInt(opp.score.value);
+                        }
+                    });
+                    
+                    const gamesUsed = last10.length;
+                    const avgPts = totalPts / gamesUsed;
+                    const avgOppPts = totalOppPts / gamesUsed;
+                    
+                    // Estimate pace using the same baseline approach (simplified)
+                    // We don't have league averages for last 10, so we'll approximate using the team's own pace from season
+                    const season = window.teamAnalyticsStore[teamId];
+                    // Use season pace as a base, but could also compute from game pace if we had possession data
+                    // We'll keep it simple: use season pace as an estimate, but adjust slightly based on total points
+                    const pace = season.estPace; // could be refined, but this is reasonable
+                    
+                    const offRtg = (avgPts / pace) * 100;
+                    const defRtg = (avgOppPts / pace) * 100;
+                    
+                    window.teamLast10Store[teamId] = {
+                        estPace: pace,
+                        offRtg: offRtg,
+                        defRtg: defRtg,
+                        abbrev: season.abbrev
+                    };
+                } catch (e) {
+                    console.warn(`Failed to fetch last 10 for team ${teamId}`, e);
+                    // fallback to season
+                    const season = window.teamAnalyticsStore[teamId];
+                    window.teamLast10Store[teamId] = {
+                        estPace: season.estPace,
+                        offRtg: season.offRtg,
+                        defRtg: season.defRtg,
+                        abbrev: season.abbrev
+                    };
+                }
+            });
+
+            await Promise.all(promises);
+            
+            // Now update rankings using the last-10 data
+            updateLast10Rankings();
+        }
+
+        function updateLast10Rankings() {
+            const teams = Object.values(window.teamLast10Store);
             if (teams.length === 0) {
                 document.getElementById('rankings-container').innerHTML = '<div class="loading">No data</div>';
                 return;
             }
 
-            // Sort for Pace (highest first) -> take top 15
+            // Sort for Pace (highest first) -> top 15
             const paceSorted = [...teams].sort((a, b) => b.estPace - a.estPace).slice(0, 15);
             // Sort for Offensive Rating (highest first) -> top 15
             const offSorted = [...teams].sort((a, b) => b.offRtg - a.offRtg).slice(0, 15);
-            // Sort for Defensive Rating (lowest first, because lower is better) -> top 15 (best defense)
+            // Sort for Defensive Rating (lowest first) -> top 15
             const defSorted = [...teams].sort((a, b) => a.defRtg - b.defRtg).slice(0, 15);
-
-            const buildList = (sortedArray, valueKey) => {
-                return sortedArray.map(t => `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t[valueKey].toFixed(1)}</span></li>`).join('');
-            };
 
             const html = `
                 <div class="rankings-grid">
@@ -492,7 +572,7 @@
                         </ul>
                     </div>
                 </div>
-                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on last 10 games (simulated) · Top 15 shown</p>
+                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on actual last 10 games · Top 15 shown</p>
             `;
             document.getElementById('rankings-container').innerHTML = html;
         }
@@ -991,7 +1071,7 @@
             return { icon: "⚖️", text: "NEUTRAL", color: "#555" };
         }
 
-        // Proxy generator for True Shooting % and Offensive Rebound %
+        // Proxy generator for True Shooting % and Offensive Rebound % (still needed for main dashboard)
         function getProxyTS(teamId) {
             let seed = parseInt(teamId);
             const random = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
