@@ -151,18 +151,15 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
-        /* Rankings table - scrollable top 15 */
+        /* Rankings table - no scrollbar, full list visible */
         .rankings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
         .rank-category { background: #f8f9fa; border-radius: 6px; padding: 8px; }
         .rank-category h3 { font-size: 11px; margin: 0 0 6px 0; color: #1d428a; text-transform: uppercase; text-align: center; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
-        .rank-list { list-style: none; margin: 0; padding: 0; font-size: 10px; max-height: 200px; overflow-y: auto; }
+        .rank-list { list-style: none; margin: 0; padding: 0; font-size: 10px; max-height: none; overflow-y: visible; }
         .rank-list li { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted #eee; }
         .rank-list li:last-child { border-bottom: none; }
         .rank-abbr { font-weight: bold; color: #333; }
         .rank-value { color: #c8102e; font-weight: bold; }
-        .rank-list::-webkit-scrollbar { width: 4px; }
-        .rank-list::-webkit-scrollbar-track { background: #f1f1f1; }
-        .rank-list::-webkit-scrollbar-thumb { background: #aaa; border-radius: 4px; }
     </style>
 </head>
 <body onload="initGlobalData()">
@@ -316,7 +313,7 @@
                 <div id="standings-container"><div class="loading">Loading Standings...</div></div>
             </div>
             
-            <!-- Rankings Box (now based on actual last-10-game averages) -->
+            <!-- Rankings Box (actual last-10-game averages) -->
             <div class="widget-box">
                 <h2>📊 Last 10 Games Averages</h2>
                 <div id="rankings-container"><div class="loading">Loading Rankings...</div></div>
