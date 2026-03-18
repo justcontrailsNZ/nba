@@ -151,7 +151,7 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
-        /* Rankings table - no scrollbar, full list visible */
+        /* Rankings table - full list, no scrollbar */
         .rankings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
         .rank-category { background: #f8f9fa; border-radius: 6px; padding: 8px; }
         .rank-category h3 { font-size: 11px; margin: 0 0 6px 0; color: #1d428a; text-transform: uppercase; text-align: center; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
@@ -313,7 +313,7 @@
                 <div id="standings-container"><div class="loading">Loading Standings...</div></div>
             </div>
             
-            <!-- Rankings Box (actual last-10-game averages) -->
+            <!-- Rankings Box (all teams, last-10-game averages) -->
             <div class="widget-box">
                 <h2>📊 Last 10 Games Averages</h2>
                 <div id="rankings-container"><div class="loading">Loading Rankings...</div></div>
@@ -530,7 +530,7 @@
 
             await Promise.all(promises);
             
-            // Now update rankings using the last-10 data
+            // Now update rankings using the last-10 data (all teams, no slice)
             updateLast10Rankings();
         }
 
@@ -541,12 +541,10 @@
                 return;
             }
 
-            // Sort for Pace (highest first) -> top 15
-            const paceSorted = [...teams].sort((a, b) => b.estPace - a.estPace).slice(0, 15);
-            // Sort for Offensive Rating (highest first) -> top 15
-            const offSorted = [...teams].sort((a, b) => b.offRtg - a.offRtg).slice(0, 15);
-            // Sort for Defensive Rating (lowest first) -> top 15
-            const defSorted = [...teams].sort((a, b) => a.defRtg - b.defRtg).slice(0, 15);
+            // Sort all teams (no slice)
+            const paceSorted = [...teams].sort((a, b) => b.estPace - a.estPace);
+            const offSorted = [...teams].sort((a, b) => b.offRtg - a.offRtg);
+            const defSorted = [...teams].sort((a, b) => a.defRtg - b.defRtg);
 
             const html = `
                 <div class="rankings-grid">
@@ -569,7 +567,7 @@
                         </ul>
                     </div>
                 </div>
-                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on actual last 10 games · Top 15 shown</p>
+                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on actual last 10 games · All teams shown</p>
             `;
             document.getElementById('rankings-container').innerHTML = html;
         }
