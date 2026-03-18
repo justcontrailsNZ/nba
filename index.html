@@ -151,15 +151,19 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
-        /* Rankings table - full list, no scrollbar */
+        /* Rankings table - with trend indicators */
         .rankings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
         .rank-category { background: #f8f9fa; border-radius: 6px; padding: 8px; }
         .rank-category h3 { font-size: 11px; margin: 0 0 6px 0; color: #1d428a; text-transform: uppercase; text-align: center; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
         .rank-list { list-style: none; margin: 0; padding: 0; font-size: 10px; max-height: none; overflow-y: visible; }
-        .rank-list li { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted #eee; }
+        .rank-list li { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px dotted #eee; }
         .rank-list li:last-child { border-bottom: none; }
         .rank-abbr { font-weight: bold; color: #333; }
-        .rank-value { color: #c8102e; font-weight: bold; }
+        .rank-value { color: #c8102e; font-weight: bold; margin-right: 4px; }
+        .trend-up { color: #28a745; font-size: 9px; margin-left: 2px; }
+        .trend-down { color: #c8102e; font-size: 9px; margin-left: 2px; }
+        .trend-flat { color: #888; font-size: 9px; margin-left: 2px; }
+        .trend-num { font-size: 8px; margin-left: 1px; }
     </style>
 </head>
 <body onload="initGlobalData()">
@@ -313,9 +317,9 @@
                 <div id="standings-container"><div class="loading">Loading Standings...</div></div>
             </div>
             
-            <!-- Rankings Box (all teams, last-10-game averages) -->
+            <!-- Rankings Box (all teams, last-10-game averages with trends) -->
             <div class="widget-box">
-                <h2>📊 Last 10 Games Averages</h2>
+                <h2>📊 Last 10 Games Averages (vs prev 10)</h2>
                 <div id="rankings-container"><div class="loading">Loading Rankings...</div></div>
             </div>
 
@@ -341,7 +345,7 @@
         let netRtgChartInstance = null;
         let shotProfileChartInstance = null;
         window.teamAnalyticsStore = {};      // season-long estimates (from standings)
-        window.teamLast10Store = {};         // actual last-10-game averages
+        window.teamLast10Store = {};         // actual last-10-game averages with trends
         
         let currentSlateDate = new Date();
         currentSlateDate.setHours(currentSlateDate.getHours() - 5); 
@@ -372,7 +376,7 @@
 
         function initGlobalData() {
             fetchLeaders();
-            fetchStandings();  // this will also trigger fetchLast10ForAllTeams() after standings load
+            fetchStandings();  // this will also trigger fetchLast20ForAllTeams() after standings load
         }
 
         async function fetchStandings() {
@@ -440,8 +444,8 @@
                     html += buildTable(west) + buildTable(east) + '</div>';
                     document.getElementById('standings-container').innerHTML = html;
                     
-                    // After standings are loaded, fetch actual last-10-game data for all teams
-                    fetchLast10ForAllTeams();
+                    // After standings are loaded, fetch actual last-20-game data for all teams
+                    fetchLast20ForAllTeams();
                     
                     loadDailySlate(0);
                 }
@@ -451,10 +455,10 @@
             }
         }
 
-        // New function: fetch last 10 completed games for every team and compute averages
-        async function fetchLast10ForAllTeams() {
+        // New function: fetch last 20 completed games for every team and compute averages for last 10 and previous 10
+        async function fetchLast20ForAllTeams() {
             const rankingsContainer = document.getElementById('rankings-container');
-            rankingsContainer.innerHTML = '<div class="loading">Fetching last 10 games for all teams...</div>';
+            rankingsContainer.innerHTML = '<div class="loading">Fetching last 20 games for all teams...</div>';
 
             const teamIds = Object.keys(window.teamAnalyticsStore); // all team IDs from standings
             if (teamIds.length === 0) {
@@ -462,7 +466,7 @@
                 return;
             }
 
-            // We'll store last-10 averages in window.teamLast10Store
+            // We'll store last-10 and previous-10 averages in window.teamLast10Store
             const promises = teamIds.map(async (teamId) => {
                 try {
                     const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/schedule`);
@@ -470,68 +474,86 @@
                     
                     // Filter completed games
                     const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
-                    const last10 = completedGames.slice(-10); // last 10 (or fewer if not enough games)
                     
-                    if (last10.length === 0) {
-                        // Not enough games, fallback to season estimates
-                        const season = window.teamAnalyticsStore[teamId];
-                        window.teamLast10Store[teamId] = {
-                            estPace: season.estPace,
-                            offRtg: season.offRtg,
-                            defRtg: season.defRtg,
-                            abbrev: season.abbrev
-                        };
-                        return;
-                    }
+                    // Need at least 10 games to show current, 20 to show previous
+                    const season = window.teamAnalyticsStore[teamId];
+                    const pace = season.estPace; // use season pace for consistency
                     
-                    let totalPts = 0, totalOppPts = 0;
+                    // Current last 10 (most recent)
+                    const last10 = completedGames.slice(-10);
+                    let curPts = 0, curOppPts = 0;
                     last10.forEach(game => {
                         const comp = game.competitions[0];
                         const me = comp.competitors.find(c => String(c.team.id) === teamId);
                         const opp = comp.competitors.find(c => String(c.team.id) !== teamId);
                         if (me && me.score && opp && opp.score) {
-                            totalPts += parseInt(me.score.value);
-                            totalOppPts += parseInt(opp.score.value);
+                            curPts += parseInt(me.score.value);
+                            curOppPts += parseInt(opp.score.value);
                         }
                     });
+                    const curGames = last10.length;
+                    const curAvgPts = curGames > 0 ? curPts / curGames : 0;
+                    const curAvgOppPts = curGames > 0 ? curOppPts / curGames : 0;
+                    const curOffRtg = (curAvgPts / pace) * 100;
+                    const curDefRtg = (curAvgOppPts / pace) * 100;
                     
-                    const gamesUsed = last10.length;
-                    const avgPts = totalPts / gamesUsed;
-                    const avgOppPts = totalOppPts / gamesUsed;
-                    
-                    // Estimate pace using the same baseline approach (simplified)
-                    // We don't have league averages for last 10, so we'll approximate using the team's own pace from season
-                    const season = window.teamAnalyticsStore[teamId];
-                    // Use season pace as a base, but could also compute from game pace if we had possession data
-                    // We'll keep it simple: use season pace as an estimate, but adjust slightly based on total points
-                    const pace = season.estPace; // could be refined, but this is reasonable
-                    
-                    const offRtg = (avgPts / pace) * 100;
-                    const defRtg = (avgOppPts / pace) * 100;
+                    // Previous 10 (games 11-20 if available)
+                    let prevOffRtg = null, prevDefRtg = null;
+                    if (completedGames.length >= 20) {
+                        const prev10 = completedGames.slice(-20, -10);
+                        let prevPts = 0, prevOppPts = 0;
+                        prev10.forEach(game => {
+                            const comp = game.competitions[0];
+                            const me = comp.competitors.find(c => String(c.team.id) === teamId);
+                            const opp = comp.competitors.find(c => String(c.team.id) !== teamId);
+                            if (me && me.score && opp && opp.score) {
+                                prevPts += parseInt(me.score.value);
+                                prevOppPts += parseInt(opp.score.value);
+                            }
+                        });
+                        const prevGames = prev10.length;
+                        const prevAvgPts = prevGames > 0 ? prevPts / prevGames : 0;
+                        const prevAvgOppPts = prevGames > 0 ? prevOppPts / prevGames : 0;
+                        prevOffRtg = (prevAvgPts / pace) * 100;
+                        prevDefRtg = (prevAvgOppPts / pace) * 100;
+                    }
                     
                     window.teamLast10Store[teamId] = {
+                        abbrev: season.abbrev,
                         estPace: pace,
-                        offRtg: offRtg,
-                        defRtg: defRtg,
-                        abbrev: season.abbrev
+                        curOffRtg: curOffRtg,
+                        curDefRtg: curDefRtg,
+                        prevOffRtg: prevOffRtg,
+                        prevDefRtg: prevDefRtg
                     };
                 } catch (e) {
-                    console.warn(`Failed to fetch last 10 for team ${teamId}`, e);
-                    // fallback to season
+                    console.warn(`Failed to fetch last 20 for team ${teamId}`, e);
+                    // fallback to season only (no trend)
                     const season = window.teamAnalyticsStore[teamId];
                     window.teamLast10Store[teamId] = {
+                        abbrev: season.abbrev,
                         estPace: season.estPace,
-                        offRtg: season.offRtg,
-                        defRtg: season.defRtg,
-                        abbrev: season.abbrev
+                        curOffRtg: season.offRtg,
+                        curDefRtg: season.defRtg,
+                        prevOffRtg: null,
+                        prevDefRtg: null
                     };
                 }
             });
 
             await Promise.all(promises);
             
-            // Now update rankings using the last-10 data (all teams, no slice)
+            // Now update rankings using the stored data
             updateLast10Rankings();
+        }
+
+        function getTrendHtml(current, previous, higherIsBetter = true) {
+            if (previous === null || previous === undefined) return '<span class="trend-flat">–</span>';
+            const diff = current - previous;
+            if (Math.abs(diff) < 0.05) return '<span class="trend-flat">–</span>';
+            const arrow = diff > 0 ? '▲' : '▼';
+            const color = (diff > 0 && higherIsBetter) || (diff < 0 && !higherIsBetter) ? 'trend-up' : 'trend-down';
+            return `<span class="${color}">${arrow} ${diff > 0 ? '+' : ''}${diff.toFixed(1)}</span>`;
         }
 
         function updateLast10Rankings() {
@@ -541,10 +563,10 @@
                 return;
             }
 
-            // Sort all teams (no slice)
+            // Sort all teams by current values
             const paceSorted = [...teams].sort((a, b) => b.estPace - a.estPace);
-            const offSorted = [...teams].sort((a, b) => b.offRtg - a.offRtg);
-            const defSorted = [...teams].sort((a, b) => a.defRtg - b.defRtg);
+            const offSorted = [...teams].sort((a, b) => b.curOffRtg - a.curOffRtg);
+            const defSorted = [...teams].sort((a, b) => a.curDefRtg - b.curDefRtg);
 
             const html = `
                 <div class="rankings-grid">
@@ -557,17 +579,23 @@
                     <div class="rank-category">
                         <h3>Offensive Rating</h3>
                         <ul class="rank-list">
-                            ${offSorted.map(t => `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.offRtg.toFixed(1)}</span></li>`).join('')}
+                            ${offSorted.map(t => {
+                                const trend = getTrendHtml(t.curOffRtg, t.prevOffRtg, true);
+                                return `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curOffRtg.toFixed(1)}</span> ${trend}</li>`;
+                            }).join('')}
                         </ul>
                     </div>
                     <div class="rank-category">
                         <h3>Defensive Rating</h3>
                         <ul class="rank-list">
-                            ${defSorted.map(t => `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.defRtg.toFixed(1)}</span></li>`).join('')}
+                            ${defSorted.map(t => {
+                                const trend = getTrendHtml(t.curDefRtg, t.prevDefRtg, false);
+                                return `<li><span class="rank-abbr">${t.abbrev}</span> <span class="rank-value">${t.curDefRtg.toFixed(1)}</span> ${trend}</li>`;
+                            }).join('')}
                         </ul>
                     </div>
                 </div>
-                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on actual last 10 games · All teams shown</p>
+                <p style="font-size:9px; text-align:center; margin:5px 0 0; color:#888;">Based on actual last 10 games · Trend vs previous 10 (▲ better, ▼ worse)</p>
             `;
             document.getElementById('rankings-container').innerHTML = html;
         }
