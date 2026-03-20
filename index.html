@@ -153,6 +153,11 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
+        /* Bet marker */
+        .bet-marker { font-weight: bold; margin-left: 5px; }
+        .bet-yes { color: #28a745; }
+        .bet-no { color: #888; }
+
         /* Rankings table - with trend indicators for all three columns */
         .rankings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
         .rank-category { background: #f8f9fa; border-radius: 6px; padding: 8px; }
@@ -682,6 +687,7 @@
 
             let totalHits = 0, totalMisses = 0, totalPushes = 0, totalPasses = 0;
             let spreadHits = 0, spreadMisses = 0, spreadPushes = 0, spreadPasses = 0;
+            let betCount = 0; // number of games where bet condition true
             let daysProcessed = 0;
 
             for (let i = 0; i < daysBack; i++) {
@@ -710,13 +716,13 @@
                         const actualTotal = hScore + aScore;
                         const actualHomeMargin = hScore - aScore;
 
-                        const sH = window.teamAnalyticsStore[h.team.id];
-                        const sA = window.teamAnalyticsStore[a.team.id];
-                        if (!sH || !sA) continue;
+                        const sH_last10 = window.teamLast10Store[h.team.id];
+                        const sA_last10 = window.teamLast10Store[a.team.id];
+                        if (!sH_last10 || !sA_last10) continue;
 
-                        const ep = (sH.estPace + sA.estPace) / 2;
-                        let hRaw = ((sH.offRtg + sA.defRtg)/2)*(ep/100) + 3 + ((sH.formWeight-0.5)*5);
-                        let aRaw = ((sA.offRtg + sH.defRtg)/2)*(ep/100) + ((sA.formWeight-0.5)*5);
+                        const ep = (sH_last10.curPace + sA_last10.curPace) / 2;
+                        let hRaw = ((sH_last10.curOffRtg + sA_last10.curDefRtg)/2)*(ep/100) + 3; // home court
+                        let aRaw = ((sA_last10.curOffRtg + sH_last10.curDefRtg)/2)*(ep/100);
                         let tExp = hRaw + aRaw;
 
                         let bookLine = comp.odds?.[0]?.overUnder || 0;
@@ -737,7 +743,25 @@
                             } catch(err) {}
                         }
 
-                        // Totals
+                        // Compute book home margin
+                        let bookHomeMargin = 0;
+                        if (bookSpreadStr !== 'N/A' && bookSpreadStr.toUpperCase() !== 'EVEN') {
+                            const parts = bookSpreadStr.split(' ');
+                            const fav = parts[0];
+                            const val = parseFloat(parts[1] || 0);
+                            if (fav === h.team.abbreviation) bookHomeMargin = Math.abs(val);
+                            else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
+                        }
+
+                        const modelHomeMargin = hRaw - aRaw;
+
+                        // Bet condition: within 3 points for either spread or total
+                        const spreadWithin3 = bookSpreadStr !== 'N/A' && Math.abs(modelHomeMargin - bookHomeMargin) <= 3;
+                        const totalWithin3 = bookLine > 0 && Math.abs(tExp - bookLine) <= 3;
+                        const bet = spreadWithin3 || totalWithin3;
+                        if (bet) betCount++;
+
+                        // Totals (existing)
                         if (bookLine > 0) {
                             let diff = Math.abs(tExp - bookLine);
                             let isOverPick = tExp > bookLine;
@@ -753,18 +777,17 @@
                             }
                         }
 
-                        // Spreads
+                        // Spreads (existing)
                         if (bookSpreadStr !== 'N/A') {
-                            let bookHomeMargin = 0;
+                            let bookHomeMarginLocal = 0;
                             if (bookSpreadStr.toUpperCase() !== 'EVEN') {
                                 const parts = bookSpreadStr.split(' ');
                                 const fav = parts[0];
                                 const val = parseFloat(parts[1] || 0);
-                                if (fav === h.team.abbreviation) bookHomeMargin = Math.abs(val);
-                                else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
+                                if (fav === h.team.abbreviation) bookHomeMarginLocal = Math.abs(val);
+                                else if (fav === a.team.abbreviation) bookHomeMarginLocal = -Math.abs(val);
                             }
-                            const modelHomeMargin = hRaw - aRaw;
-                            const marginDiff = modelHomeMargin - bookHomeMargin;
+                            const marginDiff = modelHomeMargin - bookHomeMarginLocal;
                             let pickSide = null;
 
                             if (marginDiff > 2.5) pickSide = 'home';
@@ -774,8 +797,8 @@
                             }
 
                             if (pickSide) {
-                                if (actualHomeMargin === bookHomeMargin) spreadPushes++;
-                                else if ((pickSide === 'home' && actualHomeMargin > bookHomeMargin) || (pickSide === 'away' && actualHomeMargin < bookHomeMargin)) spreadHits++;
+                                if (actualHomeMargin === bookHomeMarginLocal) spreadPushes++;
+                                else if ((pickSide === 'home' && actualHomeMargin > bookHomeMarginLocal) || (pickSide === 'away' && actualHomeMargin < bookHomeMarginLocal)) spreadHits++;
                                 else spreadMisses++;
                             }
                         }
@@ -804,6 +827,12 @@
                             <span class="miss">❌ ${totalMisses}</span>
                             <span class="push">⚖️ ${totalPushes}</span>
                             <span class="pass">⏸️ ${totalPasses}</span>
+                        </div>
+                    </div>
+                    <div class="summary-row">
+                        <span class="summary-label">BETS:</span>
+                        <div class="summary-values">
+                            <span class="hit">✅ ${betCount}</span>
                         </div>
                     </div>
                 </div>
@@ -857,6 +886,7 @@
                 let html = '';
                 let totalHits = 0, totalMisses = 0, totalPushes = 0, totalPasses = 0;
                 let spreadHits = 0, spreadMisses = 0, spreadPushes = 0, spreadPasses = 0;
+                let betCount = 0;
                 let anyFinal = false;
 
                 for (const evt of data.events) {
@@ -879,7 +909,6 @@
                     if (!sH_last10 || !sA_last10) continue;
 
                     const ep = (sH_last10.curPace + sA_last10.curPace) / 2;
-                    // No form adjustment for last10 projections – assume neutral form weight = 0.5, so term (formWeight-0.5)*5 = 0
                     let hRaw = ((sH_last10.curOffRtg + sA_last10.curDefRtg)/2)*(ep/100) + 3; // home court advantage
                     let aRaw = ((sA_last10.curOffRtg + sH_last10.curDefRtg)/2)*(ep/100);
                     let tExp = hRaw + aRaw;
@@ -985,6 +1014,21 @@
                         }
                     }
 
+                    // Compute bet condition (within 3 points)
+                    let bookHomeMarginBet = 0;
+                    if (bookSpreadStr !== 'N/A' && bookSpreadStr.toUpperCase() !== 'EVEN') {
+                        const parts = bookSpreadStr.split(' ');
+                        const fav = parts[0];
+                        const val = parseFloat(parts[1] || 0);
+                        if (fav === h.team.abbreviation) bookHomeMarginBet = Math.abs(val);
+                        else if (fav === a.team.abbreviation) bookHomeMarginBet = -Math.abs(val);
+                    }
+                    const modelHomeMargin = hRaw - aRaw;
+                    const spreadWithin3 = bookSpreadStr !== 'N/A' && Math.abs(modelHomeMargin - bookHomeMarginBet) <= 3;
+                    const totalWithin3 = bookLine > 0 && Math.abs(tExp - bookLine) <= 3;
+                    const bet = spreadWithin3 || totalWithin3;
+                    if (bet && isFinal) betCount++;
+
                     // Format game time in NZ time and show winner for final games
                     const gameDate = new Date(comp.date);
                     const nzTimeStr = gameDate.toLocaleTimeString('en-NZ', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit' });
@@ -1014,10 +1058,14 @@
                                 <span>Proj Total: <span class="metric-val">${tExp.toFixed(1)}</span></span>
                                 <span>Book: ${bookLineStr} ${evTotalHtml} ${totalResultHtml}</span>
                             </div>
+                            <div class="metric-row">
+                                <span>Bet:</span>
+                                <span><span class="bet-marker ${bet ? 'bet-yes' : 'bet-no'}">${bet ? '✅' : '❌'}</span></span>
+                            </div>
                         </div>
                     `;
 
-                    // Update daily summary counts (using the same projection logic – note: we use last10 data for consistency)
+                    // Update daily summary counts
                     if (isFinal) {
                         // Totals
                         if (bookLine > 0) {
@@ -1036,16 +1084,16 @@
                         }
                         // Spreads
                         if (bookSpreadStr !== 'N/A') {
-                            let bookHomeMargin = 0;
+                            let bookHomeMarginLocal = 0;
                             if (bookSpreadStr.toUpperCase() !== 'EVEN') {
                                 const parts = bookSpreadStr.split(' ');
                                 const fav = parts[0];
                                 const val = parseFloat(parts[1] || 0);
-                                if (fav === h.team.abbreviation) bookHomeMargin = Math.abs(val);
-                                else if (fav === a.team.abbreviation) bookHomeMargin = -Math.abs(val);
+                                if (fav === h.team.abbreviation) bookHomeMarginLocal = Math.abs(val);
+                                else if (fav === a.team.abbreviation) bookHomeMarginLocal = -Math.abs(val);
                             }
-                            const modelHomeMargin = hRaw - aRaw;
-                            const marginDiff = modelHomeMargin - bookHomeMargin;
+                            const modelHomeMarginLocal = hRaw - aRaw;
+                            const marginDiff = modelHomeMarginLocal - bookHomeMarginLocal;
                             let pickSideLocal = null;
 
                             if (marginDiff > 2.5) pickSideLocal = 'home';
@@ -1055,8 +1103,8 @@
                             }
 
                             if (pickSideLocal) {
-                                if (actualHomeMargin === bookHomeMargin) spreadPushes++;
-                                else if ((pickSideLocal === 'home' && actualHomeMargin > bookHomeMargin) || (pickSideLocal === 'away' && actualHomeMargin < bookHomeMargin)) spreadHits++;
+                                if (actualHomeMargin === bookHomeMarginLocal) spreadPushes++;
+                                else if ((pickSideLocal === 'home' && actualHomeMargin > bookHomeMarginLocal) || (pickSideLocal === 'away' && actualHomeMargin < bookHomeMarginLocal)) spreadHits++;
                                 else spreadMisses++;
                             }
                         }
@@ -1084,6 +1132,12 @@
                                     <span class="miss">❌ ${totalMisses}</span>
                                     <span class="push">⚖️ ${totalPushes}</span>
                                     <span class="pass">⏸️ ${totalPasses}</span>
+                                </div>
+                            </div>
+                            <div class="summary-row">
+                                <span class="summary-label">BETS:</span>
+                                <div class="summary-values">
+                                    <span class="hit">✅ ${betCount}</span>
                                 </div>
                             </div>
                         </div>
