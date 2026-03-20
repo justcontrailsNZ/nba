@@ -12,7 +12,7 @@
         
         /* 3-Column Layout */
         .layout-container { display: flex; flex-wrap: wrap; gap: 20px; max-width: 1600px; margin: 0 auto; }
-        .slate-col { flex: 2.5; min-width: 320px; display: flex; flex-direction: column; gap: 20px; }
+        .slate-col { flex: 2.5; min-width: 340px; display: flex; flex-direction: column; gap: 20px; }
         .center-col { flex: 5.5; min-width: 550px; }
         .right-col { flex: 2.5; min-width: 300px; display: flex; flex-direction: column; gap: 20px; }
 
@@ -153,7 +153,7 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
-        /* Close marker */
+        /* Close markers */
         .close-marker { font-weight: bold; margin-left: 5px; }
         .close-yes { color: #28a745; }
         .close-no { color: #888; }
@@ -687,7 +687,8 @@
 
             let totalHits = 0, totalMisses = 0, totalPushes = 0, totalPasses = 0;
             let spreadHits = 0, spreadMisses = 0, spreadPushes = 0, spreadPasses = 0;
-            let closeHits = 0, closeMisses = 0, closePushes = 0; // for games where close condition true
+            let closeSpreadHits = 0, closeSpreadMisses = 0, closeSpreadPushes = 0;
+            let closeTotalHits = 0, closeTotalMisses = 0, closeTotalPushes = 0;
             let daysProcessed = 0;
 
             for (let i = 0; i < daysBack; i++) {
@@ -755,28 +756,12 @@
 
                         const modelHomeMargin = hRaw - aRaw;
 
-                        // Close condition: within 3 points for either spread or total
+                        // Close conditions
                         const spreadWithin3 = bookSpreadStr !== 'N/A' && Math.abs(modelHomeMargin - bookHomeMargin) <= 3;
                         const totalWithin3 = bookLine > 0 && Math.abs(tExp - bookLine) <= 3;
-                        const close = spreadWithin3 || totalWithin3;
 
-                        // Totals (existing)
-                        if (bookLine > 0) {
-                            let diff = Math.abs(tExp - bookLine);
-                            let isOverPick = tExp > bookLine;
-                            if (diff > 4.0) {
-                                let overHit = actualTotal > bookLine;
-                                let underHit = actualTotal < bookLine;
-                                let wonPick = (isOverPick && overHit) || (!isOverPick && underHit);
-                                if (actualTotal === bookLine) totalPushes++;
-                                else if (wonPick) totalHits++;
-                                else totalMisses++;
-                            } else {
-                                totalPasses++;
-                            }
-                        }
-
-                        // Spreads (existing)
+                        // Spread outcome (for normal +EV and for close spread)
+                        let spreadOutcome = null; // 'hit', 'miss', 'push', 'pass'
                         if (bookSpreadStr !== 'N/A') {
                             let bookHomeMarginLocal = 0;
                             if (bookSpreadStr.toUpperCase() !== 'EVEN') {
@@ -789,54 +774,69 @@
                             const marginDiff = modelHomeMargin - bookHomeMarginLocal;
                             let pickSide = null;
 
-                            if (marginDiff > 2.5) pickSide = 'home';
-                            else if (marginDiff < -2.5) pickSide = 'away';
-                            else {
+                            if (marginDiff > 2.5) {
+                                pickSide = 'home';
+                            } else if (marginDiff < -2.5) {
+                                pickSide = 'away';
+                            } else {
                                 spreadPasses++;
+                                spreadOutcome = 'pass';
                             }
 
                             if (pickSide) {
-                                if (actualHomeMargin === bookHomeMarginLocal) spreadPushes++;
-                                else if ((pickSide === 'home' && actualHomeMargin > bookHomeMarginLocal) || (pickSide === 'away' && actualHomeMargin < bookHomeMarginLocal)) spreadHits++;
-                                else spreadMisses++;
+                                if (actualHomeMargin === bookHomeMarginLocal) {
+                                    spreadPushes++;
+                                    if (spreadWithin3) closeSpreadPushes++;
+                                    spreadOutcome = 'push';
+                                } else if ((pickSide === 'home' && actualHomeMargin > bookHomeMarginLocal) || (pickSide === 'away' && actualHomeMargin < bookHomeMarginLocal)) {
+                                    spreadHits++;
+                                    if (spreadWithin3) closeSpreadHits++;
+                                    spreadOutcome = 'hit';
+                                } else {
+                                    spreadMisses++;
+                                    if (spreadWithin3) closeSpreadMisses++;
+                                    spreadOutcome = 'miss';
+                                }
                             }
                         }
 
-                        // Close game performance (using spread outcome as proxy for "close game" success)
-                        if (close) {
-                            // Determine spread outcome for this game
-                            if (bookSpreadStr !== 'N/A') {
-                                let bookHomeMarginLocal = 0;
-                                if (bookSpreadStr.toUpperCase() !== 'EVEN') {
-                                    const parts = bookSpreadStr.split(' ');
-                                    const fav = parts[0];
-                                    const val = parseFloat(parts[1] || 0);
-                                    if (fav === h.team.abbreviation) bookHomeMarginLocal = Math.abs(val);
-                                    else if (fav === a.team.abbreviation) bookHomeMarginLocal = -Math.abs(val);
-                                }
-                                const marginDiff = modelHomeMargin - bookHomeMarginLocal;
-                                let pickSide = null;
-
-                                if (marginDiff > 2.5) pickSide = 'home';
-                                else if (marginDiff < -2.5) pickSide = 'away';
-                                else {
-                                    // This is a pass, but we still count it as close? Actually if marginDiff <=2.5, it's a pass, so no bet. But close condition might be true, so we need to define outcome for close games. We'll use the same logic as spread but without the diff>2.5 condition? That would be inconsistent. Let's use the spread outcome from earlier (spreadHits/Misses/Pushes) which already handles passes. For close games, we can just copy the spread outcome if the game was not a pass. If it was a pass, we might treat as no bet? But close condition might be true even if spread diff <=2.5, meaning the projection is close but not enough to trigger +EV. The user wants to see how these close games perform – they might be just tracking whether the projection's side wins, regardless of the +EV threshold. So we should use the simple outcome: if projected winner (hRaw>aRaw) matches actual winner, then hit, else miss. That's cleaner.
-
-                                    // We'll compute a simple hit/miss based on projected winner vs actual winner.
-                                    const projectedWinner = hRaw > aRaw ? 'home' : 'away';
-                                    const actualWinner = actualHomeMargin > 0 ? 'home' : (actualHomeMargin < 0 ? 'away' : 'push');
-                                    if (actualWinner === 'push') {
-                                        closePushes++;
-                                    } else if (projectedWinner === actualWinner) {
-                                        closeHits++;
-                                    } else {
-                                        closeMisses++;
-                                    }
+                        // Total outcome (for normal +EV and for close total)
+                        if (bookLine > 0) {
+                            let diff = Math.abs(tExp - bookLine);
+                            let isOverPick = tExp > bookLine;
+                            if (diff > 4.0) {
+                                let overHit = actualTotal > bookLine;
+                                let underHit = actualTotal < bookLine;
+                                let wonPick = (isOverPick && overHit) || (!isOverPick && underHit);
+                                if (actualTotal === bookLine) {
+                                    totalPushes++;
+                                    if (totalWithin3) closeTotalPushes++;
+                                } else if (wonPick) {
+                                    totalHits++;
+                                    if (totalWithin3) closeTotalHits++;
+                                } else {
+                                    totalMisses++;
+                                    if (totalWithin3) closeTotalMisses++;
                                 }
                             } else {
-                                // No spread, just total? For now, ignore if no spread.
+                                totalPasses++;
+                                // No close total tracking because diff <=4 is a pass, but totalWithin3 might be true? Actually if diff <=4, it's a pass, but totalWithin3 could still be true (diff<=3). But the bet condition is diff>4, so even if close, we don't consider it a bet. The user wants to track performance of close projections regardless of the +EV threshold. So we need to handle close total separately: if totalWithin3, we should record outcome based on the simple over/under pick (isOverPick) vs actual total, regardless of diff>4 condition. So we'll add a separate block for close total outcome.
+                                // But we already have totalWithin3 condition, so we need to compute outcome for close total separately.
+                                // We'll compute close total outcome here:
+                                if (totalWithin3) {
+                                    if (actualTotal === bookLine) {
+                                        closeTotalPushes++;
+                                    } else if ((isOverPick && actualTotal > bookLine) || (!isOverPick && actualTotal < bookLine)) {
+                                        closeTotalHits++;
+                                    } else {
+                                        closeTotalMisses++;
+                                    }
+                                }
                             }
                         }
+
+                        // If totalWithin3 and diff>4 case already handled above, we need to ensure we don't double-count.
+                        // The above code for diff>4 already includes closeTotal hits/misses/pushes. So we're good.
                     }
                 } catch (e) {
                     console.warn(`Could not fetch data for ${yyyy}-${mm}-${dd}`);
@@ -865,11 +865,19 @@
                         </div>
                     </div>
                     <div class="summary-row">
-                        <span class="summary-label">CLOSE:</span>
+                        <span class="summary-label">CLOSE SPREAD:</span>
                         <div class="summary-values">
-                            <span class="hit">✅ ${closeHits}</span>
-                            <span class="miss">❌ ${closeMisses}</span>
-                            <span class="push">⚖️ ${closePushes}</span>
+                            <span class="hit">✅ ${closeSpreadHits}</span>
+                            <span class="miss">❌ ${closeSpreadMisses}</span>
+                            <span class="push">⚖️ ${closeSpreadPushes}</span>
+                        </div>
+                    </div>
+                    <div class="summary-row">
+                        <span class="summary-label">CLOSE TOTAL:</span>
+                        <div class="summary-values">
+                            <span class="hit">✅ ${closeTotalHits}</span>
+                            <span class="miss">❌ ${closeTotalMisses}</span>
+                            <span class="push">⚖️ ${closeTotalPushes}</span>
                         </div>
                     </div>
                 </div>
@@ -923,7 +931,8 @@
                 let html = '';
                 let totalHits = 0, totalMisses = 0, totalPushes = 0, totalPasses = 0;
                 let spreadHits = 0, spreadMisses = 0, spreadPushes = 0, spreadPasses = 0;
-                let closeHits = 0, closeMisses = 0, closePushes = 0;
+                let closeSpreadHits = 0, closeSpreadMisses = 0, closeSpreadPushes = 0;
+                let closeTotalHits = 0, closeTotalMisses = 0, closeTotalPushes = 0;
                 let anyFinal = false;
 
                 for (const evt of data.events) {
@@ -1011,7 +1020,6 @@
                     // Determine result markers for finalized games
                     let spreadResultHtml = '';
                     let totalResultHtml = '';
-                    let closeResult = ''; // not needed in display, only for summary
                     if (isFinal) {
                         // Spread result
                         if (bookSpreadStr !== 'N/A' && pickSide) {
@@ -1052,7 +1060,7 @@
                         }
                     }
 
-                    // Compute close condition (within 3 points)
+                    // Compute close conditions
                     let bookHomeMarginClose = 0;
                     if (bookSpreadStr !== 'N/A' && bookSpreadStr.toUpperCase() !== 'EVEN') {
                         const parts = bookSpreadStr.split(' ');
@@ -1064,18 +1072,59 @@
                     const modelHomeMargin = hRaw - aRaw;
                     const spreadWithin3 = bookSpreadStr !== 'N/A' && Math.abs(modelHomeMargin - bookHomeMarginClose) <= 3;
                     const totalWithin3 = bookLine > 0 && Math.abs(tExp - bookLine) <= 3;
-                    const close = spreadWithin3 || totalWithin3;
 
                     // Update close performance if final
-                    if (isFinal && close) {
-                        const projectedWinnerSide = hRaw > aRaw ? 'home' : 'away';
-                        const actualWinnerSide = actualHomeMargin > 0 ? 'home' : (actualHomeMargin < 0 ? 'away' : 'push');
-                        if (actualWinnerSide === 'push') {
-                            closePushes++;
-                        } else if (projectedWinnerSide === actualWinnerSide) {
-                            closeHits++;
-                        } else {
-                            closeMisses++;
+                    if (isFinal) {
+                        // Close spread outcome
+                        if (spreadWithin3 && bookSpreadStr !== 'N/A') {
+                            let bookHomeMarginLocal = 0;
+                            if (bookSpreadStr.toUpperCase() !== 'EVEN') {
+                                const parts = bookSpreadStr.split(' ');
+                                const fav = parts[0];
+                                const val = parseFloat(parts[1] || 0);
+                                if (fav === h.team.abbreviation) bookHomeMarginLocal = Math.abs(val);
+                                else if (fav === a.team.abbreviation) bookHomeMarginLocal = -Math.abs(val);
+                            }
+                            const marginDiff = modelHomeMargin - bookHomeMarginLocal;
+                            let pickSideLocal = null;
+
+                            if (marginDiff > 2.5) pickSideLocal = 'home';
+                            else if (marginDiff < -2.5) pickSideLocal = 'away';
+                            else {
+                                // This is a pass, but since we are in close condition, we should still evaluate? Actually if marginDiff <=2.5, the projection is not making a bet, but the close condition is based on spreadWithin3, which might be true even if diff<=2.5. In that case, the projection's side is not clear – we could use the raw winner prediction (hRaw>aRaw) as the pick. But the user wants to track how close projections perform – the simplest is to use the projected winner (from hRaw vs aRaw) vs actual winner, regardless of the +EV threshold. Let's adopt that for close spread.
+                                // So we'll use projected winner side.
+                                const projectedWinnerSide = hRaw > aRaw ? 'home' : 'away';
+                                const actualWinnerSide = actualHomeMargin > 0 ? 'home' : (actualHomeMargin < 0 ? 'away' : 'push');
+                                if (actualWinnerSide === 'push') {
+                                    closeSpreadPushes++;
+                                } else if (projectedWinnerSide === actualWinnerSide) {
+                                    closeSpreadHits++;
+                                } else {
+                                    closeSpreadMisses++;
+                                }
+                            }
+                            // If pickSideLocal exists, use that outcome as before.
+                            if (pickSideLocal) {
+                                if (actualHomeMargin === bookHomeMarginLocal) {
+                                    closeSpreadPushes++;
+                                } else if ((pickSideLocal === 'home' && actualHomeMargin > bookHomeMarginLocal) || (pickSideLocal === 'away' && actualHomeMargin < bookHomeMarginLocal)) {
+                                    closeSpreadHits++;
+                                } else {
+                                    closeSpreadMisses++;
+                                }
+                            }
+                        }
+
+                        // Close total outcome
+                        if (totalWithin3 && bookLine > 0) {
+                            let isOverPick = tExp > bookLine;
+                            if (actualTotal === bookLine) {
+                                closeTotalPushes++;
+                            } else if ((isOverPick && actualTotal > bookLine) || (!isOverPick && actualTotal < bookLine)) {
+                                closeTotalHits++;
+                            } else {
+                                closeTotalMisses++;
+                            }
                         }
                     }
 
@@ -1109,13 +1158,17 @@
                                 <span>Book: ${bookLineStr} ${evTotalHtml} ${totalResultHtml}</span>
                             </div>
                             <div class="metric-row">
-                                <span>Close:</span>
-                                <span><span class="close-marker ${close ? 'close-yes' : 'close-no'}">${close ? '✅' : '❌'}</span></span>
+                                <span>Close Spread:</span>
+                                <span><span class="close-marker ${spreadWithin3 ? 'close-yes' : 'close-no'}">${spreadWithin3 ? '✅' : '❌'}</span></span>
+                            </div>
+                            <div class="metric-row">
+                                <span>Close Total:</span>
+                                <span><span class="close-marker ${totalWithin3 ? 'close-yes' : 'close-no'}">${totalWithin3 ? '✅' : '❌'}</span></span>
                             </div>
                         </div>
                     `;
 
-                    // Update daily summary counts
+                    // Update daily summary counts (for normal +EV)
                     if (isFinal) {
                         // Totals
                         if (bookLine > 0) {
@@ -1184,11 +1237,19 @@
                                 </div>
                             </div>
                             <div class="summary-row">
-                                <span class="summary-label">CLOSE:</span>
+                                <span class="summary-label">CLOSE SPREAD:</span>
                                 <div class="summary-values">
-                                    <span class="hit">✅ ${closeHits}</span>
-                                    <span class="miss">❌ ${closeMisses}</span>
-                                    <span class="push">⚖️ ${closePushes}</span>
+                                    <span class="hit">✅ ${closeSpreadHits}</span>
+                                    <span class="miss">❌ ${closeSpreadMisses}</span>
+                                    <span class="push">⚖️ ${closeSpreadPushes}</span>
+                                </div>
+                            </div>
+                            <div class="summary-row">
+                                <span class="summary-label">CLOSE TOTAL:</span>
+                                <div class="summary-values">
+                                    <span class="hit">✅ ${closeTotalHits}</span>
+                                    <span class="miss">❌ ${closeTotalMisses}</span>
+                                    <span class="push">⚖️ ${closeTotalPushes}</span>
                                 </div>
                             </div>
                         </div>
