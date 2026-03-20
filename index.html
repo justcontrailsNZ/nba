@@ -153,10 +153,10 @@
         .result-marker.push { color: #d48806; }
         .result-marker.pass { color: #888; }
 
-        /* Bet marker */
-        .bet-marker { font-weight: bold; margin-left: 5px; }
-        .bet-yes { color: #28a745; }
-        .bet-no { color: #888; }
+        /* Close marker */
+        .close-marker { font-weight: bold; margin-left: 5px; }
+        .close-yes { color: #28a745; }
+        .close-no { color: #888; }
 
         /* Rankings table - with trend indicators for all three columns */
         .rankings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
@@ -687,7 +687,7 @@
 
             let totalHits = 0, totalMisses = 0, totalPushes = 0, totalPasses = 0;
             let spreadHits = 0, spreadMisses = 0, spreadPushes = 0, spreadPasses = 0;
-            let betCount = 0; // number of games where bet condition true
+            let closeHits = 0, closeMisses = 0, closePushes = 0; // for games where close condition true
             let daysProcessed = 0;
 
             for (let i = 0; i < daysBack; i++) {
@@ -755,11 +755,10 @@
 
                         const modelHomeMargin = hRaw - aRaw;
 
-                        // Bet condition: within 3 points for either spread or total
+                        // Close condition: within 3 points for either spread or total
                         const spreadWithin3 = bookSpreadStr !== 'N/A' && Math.abs(modelHomeMargin - bookHomeMargin) <= 3;
                         const totalWithin3 = bookLine > 0 && Math.abs(tExp - bookLine) <= 3;
-                        const bet = spreadWithin3 || totalWithin3;
-                        if (bet) betCount++;
+                        const close = spreadWithin3 || totalWithin3;
 
                         // Totals (existing)
                         if (bookLine > 0) {
@@ -802,6 +801,42 @@
                                 else spreadMisses++;
                             }
                         }
+
+                        // Close game performance (using spread outcome as proxy for "close game" success)
+                        if (close) {
+                            // Determine spread outcome for this game
+                            if (bookSpreadStr !== 'N/A') {
+                                let bookHomeMarginLocal = 0;
+                                if (bookSpreadStr.toUpperCase() !== 'EVEN') {
+                                    const parts = bookSpreadStr.split(' ');
+                                    const fav = parts[0];
+                                    const val = parseFloat(parts[1] || 0);
+                                    if (fav === h.team.abbreviation) bookHomeMarginLocal = Math.abs(val);
+                                    else if (fav === a.team.abbreviation) bookHomeMarginLocal = -Math.abs(val);
+                                }
+                                const marginDiff = modelHomeMargin - bookHomeMarginLocal;
+                                let pickSide = null;
+
+                                if (marginDiff > 2.5) pickSide = 'home';
+                                else if (marginDiff < -2.5) pickSide = 'away';
+                                else {
+                                    // This is a pass, but we still count it as close? Actually if marginDiff <=2.5, it's a pass, so no bet. But close condition might be true, so we need to define outcome for close games. We'll use the same logic as spread but without the diff>2.5 condition? That would be inconsistent. Let's use the spread outcome from earlier (spreadHits/Misses/Pushes) which already handles passes. For close games, we can just copy the spread outcome if the game was not a pass. If it was a pass, we might treat as no bet? But close condition might be true even if spread diff <=2.5, meaning the projection is close but not enough to trigger +EV. The user wants to see how these close games perform – they might be just tracking whether the projection's side wins, regardless of the +EV threshold. So we should use the simple outcome: if projected winner (hRaw>aRaw) matches actual winner, then hit, else miss. That's cleaner.
+
+                                    // We'll compute a simple hit/miss based on projected winner vs actual winner.
+                                    const projectedWinner = hRaw > aRaw ? 'home' : 'away';
+                                    const actualWinner = actualHomeMargin > 0 ? 'home' : (actualHomeMargin < 0 ? 'away' : 'push');
+                                    if (actualWinner === 'push') {
+                                        closePushes++;
+                                    } else if (projectedWinner === actualWinner) {
+                                        closeHits++;
+                                    } else {
+                                        closeMisses++;
+                                    }
+                                }
+                            } else {
+                                // No spread, just total? For now, ignore if no spread.
+                            }
+                        }
                     }
                 } catch (e) {
                     console.warn(`Could not fetch data for ${yyyy}-${mm}-${dd}`);
@@ -830,9 +865,11 @@
                         </div>
                     </div>
                     <div class="summary-row">
-                        <span class="summary-label">BETS:</span>
+                        <span class="summary-label">CLOSE:</span>
                         <div class="summary-values">
-                            <span class="hit">✅ ${betCount}</span>
+                            <span class="hit">✅ ${closeHits}</span>
+                            <span class="miss">❌ ${closeMisses}</span>
+                            <span class="push">⚖️ ${closePushes}</span>
                         </div>
                     </div>
                 </div>
@@ -886,7 +923,7 @@
                 let html = '';
                 let totalHits = 0, totalMisses = 0, totalPushes = 0, totalPasses = 0;
                 let spreadHits = 0, spreadMisses = 0, spreadPushes = 0, spreadPasses = 0;
-                let betCount = 0;
+                let closeHits = 0, closeMisses = 0, closePushes = 0;
                 let anyFinal = false;
 
                 for (const evt of data.events) {
@@ -974,6 +1011,7 @@
                     // Determine result markers for finalized games
                     let spreadResultHtml = '';
                     let totalResultHtml = '';
+                    let closeResult = ''; // not needed in display, only for summary
                     if (isFinal) {
                         // Spread result
                         if (bookSpreadStr !== 'N/A' && pickSide) {
@@ -1014,20 +1052,32 @@
                         }
                     }
 
-                    // Compute bet condition (within 3 points)
-                    let bookHomeMarginBet = 0;
+                    // Compute close condition (within 3 points)
+                    let bookHomeMarginClose = 0;
                     if (bookSpreadStr !== 'N/A' && bookSpreadStr.toUpperCase() !== 'EVEN') {
                         const parts = bookSpreadStr.split(' ');
                         const fav = parts[0];
                         const val = parseFloat(parts[1] || 0);
-                        if (fav === h.team.abbreviation) bookHomeMarginBet = Math.abs(val);
-                        else if (fav === a.team.abbreviation) bookHomeMarginBet = -Math.abs(val);
+                        if (fav === h.team.abbreviation) bookHomeMarginClose = Math.abs(val);
+                        else if (fav === a.team.abbreviation) bookHomeMarginClose = -Math.abs(val);
                     }
                     const modelHomeMargin = hRaw - aRaw;
-                    const spreadWithin3 = bookSpreadStr !== 'N/A' && Math.abs(modelHomeMargin - bookHomeMarginBet) <= 3;
+                    const spreadWithin3 = bookSpreadStr !== 'N/A' && Math.abs(modelHomeMargin - bookHomeMarginClose) <= 3;
                     const totalWithin3 = bookLine > 0 && Math.abs(tExp - bookLine) <= 3;
-                    const bet = spreadWithin3 || totalWithin3;
-                    if (bet && isFinal) betCount++;
+                    const close = spreadWithin3 || totalWithin3;
+
+                    // Update close performance if final
+                    if (isFinal && close) {
+                        const projectedWinnerSide = hRaw > aRaw ? 'home' : 'away';
+                        const actualWinnerSide = actualHomeMargin > 0 ? 'home' : (actualHomeMargin < 0 ? 'away' : 'push');
+                        if (actualWinnerSide === 'push') {
+                            closePushes++;
+                        } else if (projectedWinnerSide === actualWinnerSide) {
+                            closeHits++;
+                        } else {
+                            closeMisses++;
+                        }
+                    }
 
                     // Format game time in NZ time and show winner for final games
                     const gameDate = new Date(comp.date);
@@ -1059,8 +1109,8 @@
                                 <span>Book: ${bookLineStr} ${evTotalHtml} ${totalResultHtml}</span>
                             </div>
                             <div class="metric-row">
-                                <span>Bet:</span>
-                                <span><span class="bet-marker ${bet ? 'bet-yes' : 'bet-no'}">${bet ? '✅' : '❌'}</span></span>
+                                <span>Close:</span>
+                                <span><span class="close-marker ${close ? 'close-yes' : 'close-no'}">${close ? '✅' : '❌'}</span></span>
                             </div>
                         </div>
                     `;
@@ -1092,8 +1142,7 @@
                                 if (fav === h.team.abbreviation) bookHomeMarginLocal = Math.abs(val);
                                 else if (fav === a.team.abbreviation) bookHomeMarginLocal = -Math.abs(val);
                             }
-                            const modelHomeMarginLocal = hRaw - aRaw;
-                            const marginDiff = modelHomeMarginLocal - bookHomeMarginLocal;
+                            const marginDiff = modelHomeMargin - bookHomeMarginLocal;
                             let pickSideLocal = null;
 
                             if (marginDiff > 2.5) pickSideLocal = 'home';
@@ -1135,9 +1184,11 @@
                                 </div>
                             </div>
                             <div class="summary-row">
-                                <span class="summary-label">BETS:</span>
+                                <span class="summary-label">CLOSE:</span>
                                 <div class="summary-values">
-                                    <span class="hit">✅ ${betCount}</span>
+                                    <span class="hit">✅ ${closeHits}</span>
+                                    <span class="miss">❌ ${closeMisses}</span>
+                                    <span class="push">⚖️ ${closePushes}</span>
                                 </div>
                             </div>
                         </div>
