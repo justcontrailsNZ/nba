@@ -115,11 +115,15 @@
         .leader-rank { font-weight: bold; color: #999; width: 22px; display: inline-block; }
         .leader-val { font-weight: bold; color: #c8102e; font-size: 14px; }
 
-        .news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; margin-bottom: 40px; }
+        /* Split news layout */
+        .split-news-container { display: flex; gap: 20px; margin-top: 30px; flex-wrap: wrap; }
+        .news-column { flex: 1; min-width: 280px; }
+        .news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; margin-bottom: 0; }
         .news-card { background: white; border-radius: 8px; padding: 15px; border: 1px solid #e1e4e8; display: flex; flex-direction: column; }
         .news-card h3 { font-size: 14px; margin-top: 0; }
         .news-card a { text-decoration: none; color: #1d428a; }
         .news-card p { font-size: 12px; color: #555; flex-grow: 1; margin: 8px 0; }
+        .news-date { font-size: 10px; color: #999; margin-top: 8px; text-align: right; }
 
         .loading { color: #666; font-style: italic; font-size: 13px; padding: 10px; text-align: center;}
 
@@ -316,8 +320,17 @@
                     <div class="past-games-grid" id="opp-past-games-container"></div>
                 </div>
 
-                <div class="section-title">Latest Team News</div>
-                <div class="news-grid" id="news-container"></div>
+                <!-- Split News Section (Two Columns) -->
+                <div class="split-news-container">
+                    <div class="news-column">
+                        <div class="section-title">📰 Latest Team News</div>
+                        <div class="news-grid" id="news-container"></div>
+                    </div>
+                    <div class="news-column" id="opponent-news-column" style="display: none;">
+                        <div class="section-title">📰 Latest Opponent News</div>
+                        <div class="news-grid" id="opponent-news-container"></div>
+                    </div>
+                </div>
             </div>
             <div id="team-placeholder">
                 <p style="color:#777; text-align:center; padding: 50px; background:#fff; border-radius:8px; border:1px solid #ddd;">Use the dropdown above to load specific team analytics.</p>
@@ -365,6 +378,9 @@
         window.currentTeamId = null;
         window.currentOppId = null;
         
+        // Map ESPN team IDs to full team names (from dropdown)
+        window.teamNameMap = {};
+        
         let currentSlateDate = new Date();
         currentSlateDate.setHours(currentSlateDate.getHours() - 5); 
 
@@ -393,6 +409,13 @@
         };
 
         function initGlobalData() {
+            // Build team name map from select options
+            const select = document.getElementById('team-select');
+            for (let i = 0; i < select.options.length; i++) {
+                const opt = select.options[i];
+                const id = opt.getAttribute('data-id');
+                if (id) window.teamNameMap[id] = opt.value;
+            }
             fetchLeaders();
             fetchStandings();  // this will also trigger fetchLast20ForAllTeams() after standings load
         }
@@ -426,7 +449,8 @@
 
                     const buildTable = (conf) => {
                         if (!conf) return '';
-                        let tHtml = `<div class="conf-box"><div class="conf-title">${conf.name.replace('Conference', '').trim()}</div><table class="standings-table"><tr><th>#</th><th>TM</th><th>W-L</th><th>GB</th><th>L10</th></tr>`;
+                        let tHtml = `<div class="conf-box"><div class="conf-title">${conf.name.replace('Conference', '').trim()}</div><table class="standings-table">`;
+                        tHtml += `<tr><th>#</th><th>TM</th><th>W-L</th><th>GB</th><th>L10</th></tr>`;
                         let sortedTeams = conf.standings.entries.sort((a, b) => parseInt(a.stats.find(s => s.name === 'playoffSeed')?.value || 99) - parseInt(b.stats.find(s => s.name === 'playoffSeed')?.value || 99));
 
                         sortedTeams.forEach(team => {
@@ -586,8 +610,6 @@
             const diff = current - previous;
             if (Math.abs(diff) < 0.05) return '<span class="trend-flat">–</span>';
             const arrow = diff > 0 ? '▲' : '▼';
-            // For pace, higher is generally faster but not necessarily "better" – we'll just show direction
-            // We'll still colour it based on whether it's an increase (green) or decrease (red) – neutral interpretation.
             const color = diff > 0 ? 'trend-up' : 'trend-down';
             return `<span class="${color}">${arrow} ${diff > 0 ? '+' : ''}${diff.toFixed(1)}</span>`;
         }
@@ -1388,7 +1410,8 @@
             document.getElementById('main-team-title').innerText = teamAbbrev;
 
             fetchGamesAndDrawCharts(espnId, teamAbbrev);
-            fetchNews(teamName);
+            // Fetch news for main team
+            fetchNewsForTeam(espnId, 'news-container');
         }
 
         function getTrendStatus(wins, total) {
@@ -1451,6 +1474,50 @@
             ];
         }
 
+        // Generic news fetcher that uses team name from map
+        async function fetchNewsForTeam(teamId, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '<div class="loading">Searching for the latest news articles...</div>';
+            const teamName = window.teamNameMap[teamId];
+            if (!teamName) {
+                container.innerHTML = '<p>Team name not found.</p>';
+                return;
+            }
+            const query = teamName.split(' ').join(' AND ');
+            const url = `https://newsdata.io/api/1/news?apikey=${NEWS_API_KEY}&q=${encodeURIComponent(query)}&category=sports&language=en`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                container.innerHTML = ''; 
+                if (data.status === "error") { 
+                    container.innerHTML = `<p style="color:red;">API Error: ${data.results?.message}</p>`; 
+                    return; 
+                }
+
+                if (data.results && data.results.length > 0) {
+                    const teamMascot = teamName.split(' ').pop().toLowerCase();
+                    const relevantArticles = data.results.filter(article => {
+                        return (article.title || "").toLowerCase().includes(teamMascot) || (article.description || "").toLowerCase().includes(teamMascot);
+                    });
+
+                    relevantArticles.forEach(article => {
+                        const date = new Date(article.pubDate).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland' });
+                        const desc = article.description ? (article.description.substring(0, 100) + "...") : "Read full story...";
+                        const card = document.createElement('div');
+                        card.className = 'news-card';
+                        card.innerHTML = `<h3><a href="${article.link || '#'}" target="_blank">${article.title || 'Update'}</a></h3><p>${desc}</p><div class="news-date">Published: ${date}</div>`;
+                        container.appendChild(card);
+                    });
+                } else { 
+                    container.innerHTML = '<p>No specific news found.</p>'; 
+                }
+            } catch (error) { 
+                container.innerHTML = '<p style="color:red;">News load failed.</p>'; 
+            }
+        }
+
         async function fetchGamesAndDrawCharts(espnId, teamAbbrev) {
             const nextContainer = document.getElementById('next-game-container');
             const pastContainer = document.getElementById('past-games-container');
@@ -1469,6 +1536,9 @@
             h2hContainer.innerHTML = '<div class="loading">Loading H2H history...</div>';
             oppSection.style.display = 'none';
             oppMetricsRow.style.display = 'none'; // hide opponent metrics initially
+            // Hide opponent news column initially
+            const opponentNewsCol = document.getElementById('opponent-news-column');
+            if (opponentNewsCol) opponentNewsCol.style.display = 'none';
 
             const tStats = window.teamAnalyticsStore[espnId];
             if (tStats) {
@@ -1543,6 +1613,11 @@
                 }
 
                 if (oppId) {
+                    // Show opponent news column and fetch news
+                    const opponentNewsCol = document.getElementById('opponent-news-column');
+                    if (opponentNewsCol) opponentNewsCol.style.display = 'block';
+                    fetchNewsForTeam(oppId, 'opponent-news-container');
+
                     try {
                         const oppRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${oppId}/schedule`);
                         const oppData = await oppRes.json();
@@ -2034,36 +2109,6 @@
                     </div>
                 `;
             } catch (e) { return `<div class="game-card"><p style="color:red; font-size:12px;">Error loading game details</p></div>`; }
-        }
-
-        async function fetchNews(teamName) {
-            const container = document.getElementById('news-container');
-            container.innerHTML = '<div class="loading">Searching for the latest news articles...</div>';
-            const query = teamName.split(' ').join(' AND ');
-            const url = `https://newsdata.io/api/1/news?apikey=${NEWS_API_KEY}&q=${encodeURIComponent(query)}&category=sports&language=en`;
-
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-                container.innerHTML = ''; 
-                if (data.status === "error") { container.innerHTML = `<p style="color:red;">API Error: ${data.results?.message}</p>`; return; }
-
-                if (data.results && data.results.length > 0) {
-                    const teamMascot = teamName.split(' ').pop().toLowerCase();
-                    const relevantArticles = data.results.filter(article => {
-                        return (article.title || "").toLowerCase().includes(teamMascot) || (article.description || "").toLowerCase().includes(teamMascot);
-                    });
-
-                    relevantArticles.forEach(article => {
-                        const date = new Date(article.pubDate).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland' });
-                        const desc = article.description ? (article.description.substring(0, 100) + "...") : "Read full story...";
-                        const card = document.createElement('div');
-                        card.className = 'news-card';
-                        card.innerHTML = `<h3><a href="${article.link || '#'}" target="_blank">${article.title || 'Update'}</a></h3><p>${desc}</p><div class="news-date">Published: ${date}</div>`;
-                        container.appendChild(card);
-                    });
-                } else { container.innerHTML = '<p>No specific news found.</p>'; }
-            } catch (error) { container.innerHTML = '<p style="color:red;">News load failed.</p>'; }
         }
     </script>
 </body>
