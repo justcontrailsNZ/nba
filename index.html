@@ -340,7 +340,7 @@
                     <div id="props-list" class="props-grid">
                         <div class="loading">Analyzing player matchups...</div>
                     </div>
-                    <div class="pred-subtext" style="text-align:center; margin-top:12px;">*Confidence based on player's L5 avg vs opponent's defensive weakness | Build your parlay around these high-probability props</div>
+                    <div class="pred-subtext" style="text-align:center; margin-top:12px;">*Projections based on last 5 games & opponent defensive rating | Build your parlay around high-confidence props</div>
                 </div>
 
                 <!-- Split News Section (Two Columns) -->
@@ -501,7 +501,7 @@
                                 abbrev: abbrev,
                                 teamId: team.team.id
                             };
-                            tHtml += `<tr data-team-id="${team.team.id}"><td><b>${seed}</b></td><td><b>${abbrev}</b></td><td>${wins}-${losses}</td><td>${gb}</td><td>${l10}</td></tr>`;
+                            tHtml += `<tr data-team-id="${team.team.id}"><td><b>${seed}</b></td><td><b>${abbrev}</b></td><td>${wins}-${losses}</td><td>${gb}</td><td>${l10}</td><tr>`;
                         });
                         return tHtml + `</table></div>`;
                     };
@@ -1421,75 +1421,120 @@
             } catch (e) { container.innerHTML = '<p style="color:red; text-align:center;">Failed to load leaders.</p>'; }
         }
 
-        // --- NEW: Player Prop Recommendations (based on team's key players and opponent defensive weakness) ---
+        // ----- NEW: Robust Player Prop Generator using actual box scores -----
         async function generatePlayerProps(teamId, oppId, teamAbbrev, oppAbbrev) {
             if (!oppId) return [];
-            const propsList = [];
             try {
-                // Fetch team roster to get top players (simplified: we use team leaders endpoint)
-                const leadersUrl = `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/statistics/leaders`;
-                const leadersRes = await fetch(leadersUrl);
-                const leadersData = await leadersRes.json();
+                // Step 1: Get team's last 5 completed games
+                const scheduleRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/schedule`);
+                const scheduleData = await scheduleRes.json();
+                const completedGames = scheduleData.events.filter(e => e.competitions[0].status.type.completed === true);
+                const last5Games = completedGames.slice(-5);
                 
-                // Extract top 5 scorers, top 2 rebounders, top 2 assisters from "leaders" object
-                const pointsLeaders = leadersData.leaders?.points?.leaders || [];
-                const reboundLeaders = leadersData.leaders?.rebounds?.leaders || [];
-                const assistLeaders = leadersData.leaders?.assists?.leaders || [];
+                if (last5Games.length === 0) return [];
                 
-                const topScorers = pointsLeaders.slice(0, 4).map(l => ({ id: l.athlete.id, name: l.athlete.displayName, avg: l.value, stat: 'pts' }));
-                const topRebounders = reboundLeaders.slice(0, 2).map(l => ({ id: l.athlete.id, name: l.athlete.displayName, avg: l.value, stat: 'reb' }));
-                const topAssisters = assistLeaders.slice(0, 2).map(l => ({ id: l.athlete.id, name: l.athlete.displayName, avg: l.value, stat: 'ast' }));
+                // Step 2: For each game, fetch the summary to get player stats
+                const playerStats = new Map(); // key: player name, value: { pts, reb, ast, games }
                 
-                const allCandidates = [...topScorers, ...topRebounders, ...topAssisters];
-                // Remove duplicates (same player could appear in multiple categories, we keep only highest avg or separate props)
-                const uniqueMap = new Map();
-                for (let p of allCandidates) {
-                    const key = `${p.id}_${p.stat}`;
-                    if (!uniqueMap.has(key)) uniqueMap.set(key, p);
+                for (const game of last5Games) {
+                    const gameId = game.id;
+                    const summaryRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`);
+                    const summaryData = await summaryRes.json();
+                    if (!summaryData.boxscore || !summaryData.boxscore.players) continue;
+                    
+                    // Find the team's players in this game
+                    const teamStats = summaryData.boxscore.players.find(p => p.team.id == teamId);
+                    if (!teamStats || !teamStats.statistics) continue;
+                    
+                    const statsArray = teamStats.statistics[0];
+                    if (!statsArray || !statsArray.athletes) continue;
+                    
+                    const labels = statsArray.labels || [];
+                    const ptsIdx = labels.indexOf('PTS');
+                    const rebIdx = labels.indexOf('REB');
+                    const astIdx = labels.indexOf('AST');
+                    
+                    for (const athlete of statsArray.athletes) {
+                        if (athlete.didNotPlay) continue;
+                        const name = athlete.athlete.shortName || athlete.athlete.displayName;
+                        if (!name) continue;
+                        const pts = athlete.stats && athlete.stats[ptsIdx] ? parseFloat(athlete.stats[ptsIdx]) : 0;
+                        const reb = athlete.stats && athlete.stats[rebIdx] ? parseFloat(athlete.stats[rebIdx]) : 0;
+                        const ast = athlete.stats && athlete.stats[astIdx] ? parseFloat(athlete.stats[astIdx]) : 0;
+                        
+                        if (!playerStats.has(name)) {
+                            playerStats.set(name, { pts: 0, reb: 0, ast: 0, games: 0 });
+                        }
+                        const stat = playerStats.get(name);
+                        stat.pts += pts;
+                        stat.reb += reb;
+                        stat.ast += ast;
+                        stat.games += 1;
+                    }
                 }
-                const players = Array.from(uniqueMap.values());
                 
-                // Opponent defensive ratings (higher defRtg = worse defense)
+                // Compute averages and build prop candidates
+                const candidates = [];
+                for (let [name, stat] of playerStats.entries()) {
+                    const games = stat.games;
+                    if (games === 0) continue;
+                    const avgPts = stat.pts / games;
+                    const avgReb = stat.reb / games;
+                    const avgAst = stat.ast / games;
+                    // Only include players with meaningful minutes (min 2 games and at least 5 pts or 3 reb/ast)
+                    if (games >= 2 && (avgPts >= 5 || avgReb >= 3 || avgAst >= 3)) {
+                        if (avgPts >= 5) candidates.push({ name, stat: 'pts', avg: avgPts });
+                        if (avgReb >= 3) candidates.push({ name, stat: 'reb', avg: avgReb });
+                        if (avgAst >= 3) candidates.push({ name, stat: 'ast', avg: avgAst });
+                    }
+                }
+                
+                // Remove duplicates for same player/stat (should not happen)
+                const unique = new Map();
+                for (let c of candidates) {
+                    const key = `${c.name}_${c.stat}`;
+                    if (!unique.has(key)) unique.set(key, c);
+                }
+                let propsList = Array.from(unique.values());
+                
+                // Step 3: Opponent defensive adjustment
                 const oppStats = window.teamAnalyticsStore[oppId];
-                const oppDefRtg = oppStats ? oppStats.defRtg : 110;
-                // Adjust factor: defRtg > 114 => poor defense (boosts props), < 108 => good defense (lowers props)
-                const defFactor = (oppDefRtg - 110) / 10;  // -0.2 to +0.5 roughly
+                const defFactor = oppStats ? (oppStats.defRtg - 110) / 10 : 0; // positive if defense is worse
                 
-                for (let p of players) {
-                    let projLine = p.avg;
+                // Build final prop objects
+                const finalProps = propsList.map(p => {
                     let adjustment = 0;
                     if (p.stat === 'pts') adjustment = defFactor * 1.5;
                     else if (p.stat === 'reb') adjustment = defFactor * 1.0;
                     else if (p.stat === 'ast') adjustment = defFactor * 1.2;
-                    let finalProj = Math.round((projLine + adjustment) * 10) / 10;
-                    // Ensure line is realistic: min 0.5
-                    finalProj = Math.max(0.5, finalProj);
+                    let proj = Math.round((p.avg + adjustment) * 10) / 10;
+                    proj = Math.max(0.5, proj);
                     
-                    // Confidence: based on consistency and opponent factor
                     let confidenceScore = 0.6 + Math.min(0.3, Math.abs(defFactor) * 0.5);
-                    if (projLine >= 20) confidenceScore += 0.1;
+                    if (p.avg >= 20) confidenceScore += 0.1;
                     confidenceScore = Math.min(0.95, confidenceScore);
                     let confidenceLabel = confidenceScore >= 0.75 ? 'HIGH' : (confidenceScore >= 0.6 ? 'MEDIUM' : 'LOW');
                     let confidenceClass = confidenceScore >= 0.75 ? 'confidence-high' : (confidenceScore >= 0.6 ? 'confidence-med' : 'confidence-low');
                     
-                    let propText = '';
-                    if (p.stat === 'pts') propText = `Points (Over ${finalProj})`;
-                    else if (p.stat === 'reb') propText = `Rebounds (Over ${finalProj})`;
-                    else propText = `Assists (Over ${finalProj})`;
+                    let statText = '';
+                    if (p.stat === 'pts') statText = `Points (Over ${proj})`;
+                    else if (p.stat === 'reb') statText = `Rebounds (Over ${proj})`;
+                    else statText = `Assists (Over ${proj})`;
                     
-                    propsList.push({
+                    return {
                         player: p.name,
-                        statLine: propText,
+                        statLine: statText,
                         confidence: `${Math.round(confidenceScore*100)}%`,
                         confidenceClass: confidenceClass,
-                        detail: `L5 avg: ${p.avg} | Opp DfRtg: ${oppDefRtg.toFixed(1)}`
-                    });
-                }
-                // Sort by confidence descending
-                propsList.sort((a,b) => parseInt(b.confidence) - parseInt(a.confidence));
-                return propsList.slice(0, 6);
+                        detail: `L5 avg: ${p.avg.toFixed(1)} | Opp DfRtg: ${oppStats ? oppStats.defRtg.toFixed(1) : 'N/A'}`
+                    };
+                });
+                
+                // Sort by confidence descending, then by average
+                finalProps.sort((a,b) => parseInt(b.confidence) - parseInt(a.confidence));
+                return finalProps.slice(0, 8);
             } catch (e) {
-                console.warn("Error generating props:", e);
+                console.error("Error in generatePlayerProps:", e);
                 return [];
             }
         }
@@ -1503,11 +1548,11 @@
                 return;
             }
             propsSection.style.display = 'block';
-            propsContainer.innerHTML = '<div class="loading">Evaluating player matchups...</div>';
+            propsContainer.innerHTML = '<div class="loading">Analyzing recent player performances...</div>';
             
             const props = await generatePlayerProps(teamId, oppId, teamAbbrev, oppAbbrev);
             if (props.length === 0) {
-                propsContainer.innerHTML = '<p class="loading">Could not generate props. Try again later.</p>';
+                propsContainer.innerHTML = '<p class="loading">No recent game data available for prop analysis. Try again later.</p>';
                 return;
             }
             let html = '';
@@ -1750,7 +1795,7 @@
                     if (opponentNewsCol) opponentNewsCol.style.display = 'block';
                     fetchNewsForTeam(oppId, 'opponent-news-container');
                     
-                    // Generate and display player props
+                    // Generate and display player props (using new robust function)
                     await updatePropsSection(espnId, oppId, teamAbbrev, oppAbbrev);
 
                     try {
