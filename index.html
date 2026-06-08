@@ -324,6 +324,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-color: transparent;
+            transition: 0.2s;
+        }
+        .prop-player:hover {
+            text-decoration-color: var(--blue);
         }
         .prop-stat-icon {
             font-size: 13px;
@@ -492,6 +499,73 @@
             color: #777;
             text-align: center;
             min-width: 50px;
+        }
+
+        /* Modal styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 800px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #555;
+            background: none;
+            border: none;
+        }
+        .modal-close:hover {
+            color: #000;
+        }
+        .game-log-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .game-log-table th {
+            background: #f1f3f5;
+            padding: 8px 6px;
+            border-bottom: 2px solid #ddd;
+            text-align: center;
+            font-size: 11px;
+        }
+        .game-log-table td {
+            padding: 6px;
+            border-bottom: 1px solid #eee;
+            text-align: center;
+        }
+        .game-log-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        .opponent-cell {
+            font-weight: bold;
+            color: #1d428a;
+        }
+        .location-cell {
+            font-size: 10px;
         }
 
         /* Existing syndicate & widget styles preserved */
@@ -1115,7 +1189,7 @@
                         <div id="parlay-list"><div class="loading">Building optimal parlays...</div></div>
                         <div class="pred-subtext" style="text-align:center;margin-top:8px;">*Scored by combined confidence × independence factor | Lower correlation = better parlay</div>
                     </div>
-                    <div class="pred-subtext" style="text-align:center;margin-top:12px;">*Lines calibrated to book-style .5 increments | Based on last 10 games, home/away splits, opponent defensive ranks, rest days & pace</div>
+                    <div class="pred-subtext" style="text-align:center;margin-top:12px;">*Click a player name to see their last 10 game log</div>
                 </div>
 
                 <div class="split-news-container">
@@ -1159,6 +1233,17 @@
         </div>
     </div>
 
+    <!-- Game Log Modal -->
+    <div id="game-log-modal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeGameLogModal()">&times;</button>
+            <h2 id="modal-player-name" style="margin-top:0;color:#1d428a;">Player Game Log</h2>
+            <div id="modal-game-log-content">
+                <div class="loading">Loading game log...</div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const NEWS_API_KEY = 'pub_dce2909d7f99428199a11eb8be5c290e';
         let perfChartInstance = null;
@@ -1170,6 +1255,7 @@
         window.currentTeamId = null;
         window.currentOppId = null;
         window.teamNameMap = {};
+        window.playerGameLogsCache = {}; // { teamId: Map(playerName -> array of game entries) }
         let currentSlateDate = new Date();
         currentSlateDate.setHours(currentSlateDate.getHours() - 5);
 
@@ -1219,6 +1305,9 @@
                 const teamInGame = comp.competitors.find(c => String(c.team.id) === String(teamId));
                 const isHome = teamInGame ? teamInGame.homeAway === 'home' : false;
                 const gameDate = new Date(comp.date);
+                // Get opponent info
+                const oppTeam = comp.competitors.find(c => String(c.team.id) !== String(teamId));
+                const oppAbbrev = oppTeam ? (oppTeam.team.abbreviation || oppTeam.team.shortDisplayName) : '???';
 
                 try {
                     const summaryRes = await fetch(
@@ -1236,11 +1325,12 @@
                         const name = athlete.athlete.shortName || athlete.athlete.displayName;
                         if (!name) continue;
                         if (!playerStats.has(name)) {
-                            playerStats.set(name, { games: [], allGames: [] });
+                            playerStats.set(name, []);
                         }
                         const entry = {
                             date: gameDate,
                             isHome: isHome,
+                            opponent: oppAbbrev,
                             pts: idx.pts >= 0 && athlete.stats ? parseFloat(athlete.stats[idx.pts]) || 0 : 0,
                             reb: idx.reb >= 0 && athlete.stats ? parseFloat(athlete.stats[idx.reb]) || 0 : 0,
                             ast: idx.ast >= 0 && athlete.stats ? parseFloat(athlete.stats[idx.ast]) || 0 : 0,
@@ -1248,11 +1338,12 @@
                             stl: idx.stl >= 0 && athlete.stats ? parseFloat(athlete.stats[idx.stl]) || 0 : 0,
                             tpm: idx.tpm >= 0 && athlete.stats ? parseFloat(athlete.stats[idx.tpm]) || 0 : 0,
                         };
-                        playerStats.get(name).games.push(entry);
-                        playerStats.get(name).allGames.push(entry);
+                        playerStats.get(name).push(entry);
                     }
                 } catch (e) { /* skip failed game */ }
             }
+            // Cache the logs
+            window.playerGameLogsCache[teamId] = playerStats;
             return playerStats;
         }
 
@@ -1299,16 +1390,15 @@
 
             const allProps = [];
 
-            for (const [playerName, data] of playerGameLogs.entries()) {
-                const allGames = data.allGames;
-                if (allGames.length < 3) continue;
-                const last3 = allGames.slice(-3);
-                const last10 = allGames.slice(-10);
-                const homeGames = allGames.filter(g => g.isHome);
-                const awayGames = allGames.filter(g => !g.isHome);
+            for (const [playerName, games] of playerGameLogs.entries()) {
+                if (games.length < 3) continue;
+                const last3 = games.slice(-3);
+                const last10 = games.slice(-10);
+                const homeGames = games.filter(g => g.isHome);
+                const awayGames = games.filter(g => !g.isHome);
 
                 for (const [statKey, config] of Object.entries(STAT_CONFIG)) {
-                    const allVals = allGames.map(g => g[statKey]).filter(v => v > 0 || statKey === 'blk' || statKey ===
+                    const allVals = games.map(g => g[statKey]).filter(v => v > 0 || statKey === 'blk' || statKey ===
                         'stl');
                     const last3Vals = last3.map(g => g[statKey]);
                     const last10Vals = last10.map(g => g[statKey]);
@@ -1383,7 +1473,7 @@
                         consistencyClass: consistencyClass,
                         recommendation: recommendation,
                         stdDev: stdDev,
-                        gamesCount: allVals.length,
+                        gamesCount: games.length,
                         isHome: isHomeGame,
                         detailFactors: [
                             isHomeGame ? 'Home' : 'Away',
@@ -1463,6 +1553,61 @@
             return unique.slice(0, 8);
         }
 
+        // Game Log Modal functions
+        function showPlayerGameLog(teamId, playerName) {
+            const modal = document.getElementById('game-log-modal');
+            const playerNameEl = document.getElementById('modal-player-name');
+            const contentEl = document.getElementById('modal-game-log-content');
+            playerNameEl.textContent = `${playerName} - Last 10 Games`;
+            contentEl.innerHTML = '<div class="loading">Loading game log...</div>';
+            modal.style.display = 'flex';
+
+            const cache = window.playerGameLogsCache[teamId];
+            if (!cache || !cache.has(playerName)) {
+                contentEl.innerHTML = '<p style="color:red;">Game log data not available for this player.</p>';
+                return;
+            }
+            const games = cache.get(playerName).slice(-10).reverse(); // most recent first
+            if (games.length === 0) {
+                contentEl.innerHTML = '<p>No recent game data.</p>';
+                return;
+            }
+
+            let html = `<table class="game-log-table">
+                <thead><tr>
+                    <th>Date</th><th>Opp</th><th>Loc</th><th>PTS</th><th>REB</th><th>AST</th><th>BLK</th><th>STL</th><th>3PM</th>
+                </tr></thead><tbody>`;
+            games.forEach(g => {
+                const dateStr = g.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const loc = g.isHome ? 'Home' : 'Away';
+                html += `<tr>
+                    <td>${dateStr}</td>
+                    <td class="opponent-cell">${g.opponent}</td>
+                    <td class="location-cell">${loc}</td>
+                    <td>${g.pts}</td>
+                    <td>${g.reb}</td>
+                    <td>${g.ast}</td>
+                    <td>${g.blk}</td>
+                    <td>${g.stl}</td>
+                    <td>${g.tpm}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            contentEl.innerHTML = html;
+        }
+
+        function closeGameLogModal() {
+            document.getElementById('game-log-modal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside content
+        window.onclick = function(event) {
+            const modal = document.getElementById('game-log-modal');
+            if (event.target === modal) {
+                closeGameLogModal();
+            }
+        }
+
         async function updateAdvancedPropsSection(teamId, oppId, teamAbbrev, oppAbbrev) {
             const propsSection = document.getElementById('props-recommendation-section');
             const listA = document.getElementById('props-list-team-a');
@@ -1495,8 +1640,8 @@
             const propsA = generateAdvancedPropsForTeam(teamId, oppId, teamAbbrev, isHomeGame, logsA);
             const propsB = generateAdvancedPropsForTeam(oppId, teamId, oppAbbrev, !isHomeGame, logsB);
 
-            listA.innerHTML = renderPropCards(propsA);
-            listB.innerHTML = renderPropCards(propsB);
+            listA.innerHTML = renderPropCards(propsA, teamId);
+            listB.innerHTML = renderPropCards(propsB, oppId);
 
             if (propsA.length > 0 || propsB.length > 0) {
                 const parlays = buildParlayCombinations(propsA.slice(0, 6), propsB.slice(0, 6));
@@ -1519,7 +1664,7 @@
             }
         }
 
-        function renderPropCards(props) {
+        function renderPropCards(props, teamId) {
             if (props.length === 0) return '<p class="loading">No qualifying props found for this matchup.</p>';
             return props.map(p => {
                 const recClass = p.recommendation === 'OVER' ? 'recommend-over' : (p.recommendation === 'UNDER' ?
@@ -1534,9 +1679,11 @@
                     '📉 UNDER' : '➖ PASS');
                 const isHomeTag = p.isHome ? 'home-tag' : 'away-tag';
                 const homeLabel = p.isHome ? '🏠 Home' : '✈️ Away';
+                // Click handler calls showPlayerGameLog with teamId and player name
+                const clickHandler = `showPlayerGameLog('${teamId}', '${p.player.replace(/'/g, "\\'")}')`;
                 return `
                     <div class="prop-card ${recClass}">
-                        <div class="prop-player">
+                        <div class="prop-player" onclick="${clickHandler}" title="Click to view last 10 game log">
                             <span>${p.player}</span>
                             <span class="prop-confidence ${p.confidenceClass}">${p.confidence}%</span>
                         </div>
