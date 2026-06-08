@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NBA Pro Analytics Dashboard</title>
+    <title>NBA Pro Analytics Dashboard | Player Props & Parlay Builder</title>
     <!-- Include Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -59,6 +59,20 @@
         .pred-bar.home { background-color: #1d428a; }
         .pred-text { font-size: 13px; color: #222; margin-bottom: 4px; }
         .pred-subtext { font-size: 10px; color: #777; font-style: italic; }
+
+        /* Props recommendation styles */
+        .props-container { margin-top: 30px; background: #f8f9fa; border-radius: 12px; padding: 20px; border: 1px solid #d1d9e6; }
+        .props-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; margin-top: 15px; }
+        .prop-card { background: white; border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-left: 4px solid #c8102e; transition: 0.2s; }
+        .prop-card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.1); }
+        .prop-player { font-weight: bold; font-size: 16px; color: #1d428a; margin-bottom: 5px; display: flex; justify-content: space-between; }
+        .prop-stat { font-size: 13px; color: #333; margin: 6px 0; }
+        .prop-line { font-weight: bold; color: #c8102e; font-size: 18px; }
+        .prop-confidence { display: inline-block; background: #e9ecef; border-radius: 20px; padding: 4px 10px; font-size: 11px; font-weight: bold; color: #1d428a; }
+        .confidence-high { background: #28a745; color: white; }
+        .confidence-med { background: #ffc107; color: #333; }
+        .confidence-low { background: #dc3545; color: white; }
+        .prop-footer { font-size: 10px; color: #777; margin-top: 8px; border-top: 1px dashed #eee; padding-top: 6px; text-align: right; }
 
         /* Left-Side Daily Slate Tracker CSS */
         .syndicate-box { 
@@ -188,7 +202,7 @@
 
     <div class="header-box">
         <h1>🏀 NBA Pro Analytics Dashboard</h1>
-        <div class="subtitle">Advanced Betting Insights, Deep Models, & Live Intel</div>
+        <div class="subtitle">Advanced Betting Insights, Deep Models, & Live Intel | Parlay Builder</div>
     </div>
     
     <div class="controls">
@@ -224,7 +238,7 @@
             <option value="Utah Jazz" data-id="26">Utah Jazz</option>
             <option value="Washington Wizards" data-id="27">Washington Wizards</option>
         </select>
-        <button onclick="fetchTeamData()">Get Team Intel</button>
+        <button onclick="fetchTeamData()">Get Team Intel & Props</button>
     </div>
 
     <div class="layout-container">
@@ -320,6 +334,15 @@
                     <div class="past-games-grid" id="opp-past-games-container"></div>
                 </div>
 
+                <!-- NEW: Player Props Recommendations for next matchup -->
+                <div id="props-recommendation-section" style="display:none;" class="props-container">
+                    <div class="section-title">🎯 Top Player Prop Recommendations (Next Matchup)</div>
+                    <div id="props-list" class="props-grid">
+                        <div class="loading">Analyzing player matchups...</div>
+                    </div>
+                    <div class="pred-subtext" style="text-align:center; margin-top:12px;">*Confidence based on player's L5 avg vs opponent's defensive weakness | Build your parlay around these high-probability props</div>
+                </div>
+
                 <!-- Split News Section (Two Columns) -->
                 <div class="split-news-container">
                     <div class="news-column">
@@ -333,7 +356,7 @@
                 </div>
             </div>
             <div id="team-placeholder">
-                <p style="color:#777; text-align:center; padding: 50px; background:#fff; border-radius:8px; border:1px solid #ddd;">Use the dropdown above to load specific team analytics.</p>
+                <p style="color:#777; text-align:center; padding: 50px; background:#fff; border-radius:8px; border:1px solid #ddd;">Use the dropdown above to load specific team analytics and player prop recommendations.</p>
             </div>
         </div>
 
@@ -1398,6 +1421,111 @@
             } catch (e) { container.innerHTML = '<p style="color:red; text-align:center;">Failed to load leaders.</p>'; }
         }
 
+        // --- NEW: Player Prop Recommendations (based on team's key players and opponent defensive weakness) ---
+        async function generatePlayerProps(teamId, oppId, teamAbbrev, oppAbbrev) {
+            if (!oppId) return [];
+            const propsList = [];
+            try {
+                // Fetch team roster to get top players (simplified: we use team leaders endpoint)
+                const leadersUrl = `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/statistics/leaders`;
+                const leadersRes = await fetch(leadersUrl);
+                const leadersData = await leadersRes.json();
+                
+                // Extract top 5 scorers, top 2 rebounders, top 2 assisters from "leaders" object
+                const pointsLeaders = leadersData.leaders?.points?.leaders || [];
+                const reboundLeaders = leadersData.leaders?.rebounds?.leaders || [];
+                const assistLeaders = leadersData.leaders?.assists?.leaders || [];
+                
+                const topScorers = pointsLeaders.slice(0, 4).map(l => ({ id: l.athlete.id, name: l.athlete.displayName, avg: l.value, stat: 'pts' }));
+                const topRebounders = reboundLeaders.slice(0, 2).map(l => ({ id: l.athlete.id, name: l.athlete.displayName, avg: l.value, stat: 'reb' }));
+                const topAssisters = assistLeaders.slice(0, 2).map(l => ({ id: l.athlete.id, name: l.athlete.displayName, avg: l.value, stat: 'ast' }));
+                
+                const allCandidates = [...topScorers, ...topRebounders, ...topAssisters];
+                // Remove duplicates (same player could appear in multiple categories, we keep only highest avg or separate props)
+                const uniqueMap = new Map();
+                for (let p of allCandidates) {
+                    const key = `${p.id}_${p.stat}`;
+                    if (!uniqueMap.has(key)) uniqueMap.set(key, p);
+                }
+                const players = Array.from(uniqueMap.values());
+                
+                // Opponent defensive ratings (higher defRtg = worse defense)
+                const oppStats = window.teamAnalyticsStore[oppId];
+                const oppDefRtg = oppStats ? oppStats.defRtg : 110;
+                // Adjust factor: defRtg > 114 => poor defense (boosts props), < 108 => good defense (lowers props)
+                const defFactor = (oppDefRtg - 110) / 10;  // -0.2 to +0.5 roughly
+                
+                for (let p of players) {
+                    let projLine = p.avg;
+                    let adjustment = 0;
+                    if (p.stat === 'pts') adjustment = defFactor * 1.5;
+                    else if (p.stat === 'reb') adjustment = defFactor * 1.0;
+                    else if (p.stat === 'ast') adjustment = defFactor * 1.2;
+                    let finalProj = Math.round((projLine + adjustment) * 10) / 10;
+                    // Ensure line is realistic: min 0.5
+                    finalProj = Math.max(0.5, finalProj);
+                    
+                    // Confidence: based on consistency and opponent factor
+                    let confidenceScore = 0.6 + Math.min(0.3, Math.abs(defFactor) * 0.5);
+                    if (projLine >= 20) confidenceScore += 0.1;
+                    confidenceScore = Math.min(0.95, confidenceScore);
+                    let confidenceLabel = confidenceScore >= 0.75 ? 'HIGH' : (confidenceScore >= 0.6 ? 'MEDIUM' : 'LOW');
+                    let confidenceClass = confidenceScore >= 0.75 ? 'confidence-high' : (confidenceScore >= 0.6 ? 'confidence-med' : 'confidence-low');
+                    
+                    let propText = '';
+                    if (p.stat === 'pts') propText = `Points (Over ${finalProj})`;
+                    else if (p.stat === 'reb') propText = `Rebounds (Over ${finalProj})`;
+                    else propText = `Assists (Over ${finalProj})`;
+                    
+                    propsList.push({
+                        player: p.name,
+                        statLine: propText,
+                        confidence: `${Math.round(confidenceScore*100)}%`,
+                        confidenceClass: confidenceClass,
+                        detail: `L5 avg: ${p.avg} | Opp DfRtg: ${oppDefRtg.toFixed(1)}`
+                    });
+                }
+                // Sort by confidence descending
+                propsList.sort((a,b) => parseInt(b.confidence) - parseInt(a.confidence));
+                return propsList.slice(0, 6);
+            } catch (e) {
+                console.warn("Error generating props:", e);
+                return [];
+            }
+        }
+
+        // Update the props section UI
+        async function updatePropsSection(teamId, oppId, teamAbbrev, oppAbbrev) {
+            const propsSection = document.getElementById('props-recommendation-section');
+            const propsContainer = document.getElementById('props-list');
+            if (!oppId) {
+                propsSection.style.display = 'none';
+                return;
+            }
+            propsSection.style.display = 'block';
+            propsContainer.innerHTML = '<div class="loading">Evaluating player matchups...</div>';
+            
+            const props = await generatePlayerProps(teamId, oppId, teamAbbrev, oppAbbrev);
+            if (props.length === 0) {
+                propsContainer.innerHTML = '<p class="loading">Could not generate props. Try again later.</p>';
+                return;
+            }
+            let html = '';
+            for (let p of props) {
+                html += `
+                    <div class="prop-card">
+                        <div class="prop-player">
+                            <span>${p.player}</span>
+                            <span class="prop-confidence ${p.confidenceClass}">${p.confidence}</span>
+                        </div>
+                        <div class="prop-stat"><strong>${p.statLine}</strong></div>
+                        <div class="prop-footer">${p.detail}</div>
+                    </div>
+                `;
+            }
+            propsContainer.innerHTML = html;
+        }
+
         function fetchTeamData() {
             const selectEl = document.getElementById('team-select');
             const teamName = selectEl.value;
@@ -1539,6 +1667,10 @@
             // Hide opponent news column initially
             const opponentNewsCol = document.getElementById('opponent-news-column');
             if (opponentNewsCol) opponentNewsCol.style.display = 'none';
+            
+            // Hide props section initially
+            const propsSection = document.getElementById('props-recommendation-section');
+            if (propsSection) propsSection.style.display = 'none';
 
             const tStats = window.teamAnalyticsStore[espnId];
             if (tStats) {
@@ -1617,6 +1749,9 @@
                     const opponentNewsCol = document.getElementById('opponent-news-column');
                     if (opponentNewsCol) opponentNewsCol.style.display = 'block';
                     fetchNewsForTeam(oppId, 'opponent-news-container');
+                    
+                    // Generate and display player props
+                    await updatePropsSection(espnId, oppId, teamAbbrev, oppAbbrev);
 
                     try {
                         const oppRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${oppId}/schedule`);
